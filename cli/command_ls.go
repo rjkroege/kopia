@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -19,9 +21,12 @@ type commandList struct {
 	recursive     bool
 	showOID       bool
 	errorSummary  bool
+	emitJson      bool
 	path          string
+	notfirst      bool
 
 	out textOutput
+	enc *json.Encoder
 }
 
 func (c *commandList) setup(svc appServices, parent commandParent) {
@@ -32,6 +37,7 @@ func (c *commandList) setup(svc appServices, parent commandParent) {
 	cmd.Flag("recursive", "Recursive output").Short('r').BoolVar(&c.recursive)
 	cmd.Flag("show-object-id", "Show object IDs").Short('o').BoolVar(&c.showOID)
 	cmd.Flag("error-summary", "Emit error summary").Default("true").BoolVar(&c.errorSummary)
+	cmd.Flag("emit-json", "Dump JSON format").Short('j').Default("false").BoolVar(&c.emitJson)
 	cmd.Arg("object-path", "Path").Required().StringVar(&c.path)
 	cmd.Action(svc.repositoryReaderAction(c.run))
 
@@ -52,7 +58,18 @@ func (c *commandList) run(ctx context.Context, rep repo.Repository) error {
 		}
 	}
 
-	return c.listDirectory(ctx, dir, prefix, "")
+	if c.emitJson {
+		c.enc = json.NewEncoder(os.Stdout)
+		os.Stdout.WriteString("[\n")
+	}
+
+	err2 := c.listDirectory(ctx, dir, prefix, "")
+
+	if c.emitJson {
+		os.Stdout.WriteString("]\n")
+	}
+
+	return err2
 }
 
 func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix, indent string) error {
@@ -64,8 +81,14 @@ func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix,
 
 	e, err := iter.Next(ctx)
 	for e != nil {
-		if err2 := c.printDirectoryEntry(ctx, e, prefix, indent); err2 != nil {
-			return err2
+		if c.emitJson {
+			if err2 := c.printDirectoryJSONEntry(ctx, e, prefix, indent); err2 != nil {
+				return err2
+			}
+		} else {
+			if err2 := c.printDirectoryEntry(ctx, e, prefix, indent); err2 != nil {
+				return err2
+			}
 		}
 
 		e, err = iter.Next(ctx)
@@ -81,6 +104,86 @@ func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix,
 
 			for _, e := range ds.FailedEntries {
 				errorColor.Fprintf(c.out.stderr(), "- Error in \"%v\": %v\n", e.EntryPath, e.Error) //nolint:errcheck
+			}
+		}
+	}
+
+	return nil
+}
+
+type JsonWithLong struct {
+	Mode         string
+	Size         int64
+	Time         string
+	Oid          string
+	DisplayName  string
+	ErrorSummary string
+}
+
+type JsonWithOid struct {
+	Oid          string
+	DisplayName  string
+	ErrorSummary string
+}
+
+type JsonDefault struct {
+	DisplayName  string
+	ErrorSummary string
+}
+
+func (c *commandList) printDirectoryJSONEntry(ctx context.Context, e fs.Entry, prefix, indent string) error {
+	hoid, ok := e.(object.HasObjectID)
+	if !ok {
+		return errors.Errorf("entry without object ID")
+	}
+
+	objectID := hoid.ObjectID()
+	oid := objectID.String()
+
+	errorSummary := ""
+
+	if dws, ok := e.(fs.DirectoryWithSummary); ok && c.errorSummary {
+		if ds, _ := dws.Summary(ctx); ds != nil && ds.FatalErrorCount > 0 {
+			errorSummary = fmt.Sprintf(" (%v errors)", ds.FatalErrorCount)
+		}
+	}
+
+	if c.notfirst {
+		os.Stdout.WriteString(",\n")
+	} else {
+		c.notfirst = true
+	}
+
+	switch {
+	case c.long:
+		obj := &JsonWithLong{
+			Mode:         fmt.Sprintf("%v", e.Mode()),
+			Size:         e.Size(),
+			Time:         formatTimestamp(e.ModTime().Local()),
+			Oid:          oid,
+			DisplayName:  c.nameToDisplay(prefix, e),
+			ErrorSummary: errorSummary,
+		}
+		c.enc.Encode(obj)
+	case c.showOID:
+		obj := &JsonWithOid{
+			Oid:          oid,
+			DisplayName:  c.nameToDisplay(prefix, e),
+			ErrorSummary: errorSummary,
+		}
+		c.enc.Encode(obj)
+	default:
+		obj := &JsonDefault{
+			DisplayName:  c.nameToDisplay(prefix, e),
+			ErrorSummary: errorSummary,
+		}
+		c.enc.Encode(obj)
+	}
+
+	if c.recursive {
+		if subdir, ok := e.(fs.Directory); ok {
+			if listerr := c.listDirectory(ctx, subdir, prefix+e.Name()+"/", indent+"  "); listerr != nil {
+				return listerr
 			}
 		}
 	}
