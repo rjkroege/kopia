@@ -44,10 +44,10 @@ require (
 	github.com/prometheus/common v0.44.0
 	github.com/sanity-io/litter v1.5.5
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	github.com/studio-b12/gowebdav v0.9.0
 	github.com/tg123/go-htpasswd v1.2.1
-	github.com/zalando/go-keyring v0.2.3
+	github.com/zalando/go-keyring v0.2.6
 	github.com/zeebo/blake3 v0.2.3
 	go.opentelemetry.io/otel v1.19.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.19.0
@@ -61,7 +61,7 @@ require (
 	golang.org/x/net v0.16.0
 	golang.org/x/oauth2 v0.13.0
 	golang.org/x/sync v0.4.0
-	golang.org/x/sys v0.13.0
+	golang.org/x/sys v0.26.0
 	golang.org/x/term v0.13.0
 	golang.org/x/text v0.13.0
 	google.golang.org/api v0.146.0
@@ -71,6 +71,7 @@ require (
 )
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	cloud.google.com/go v0.110.7 // indirect
 	cloud.google.com/go/compute v1.23.0 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
@@ -80,12 +81,11 @@ require (
 	github.com/Azure/go-autorest/autorest/adal v0.9.16 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.1.1 // indirect
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5 // indirect
-	github.com/alessio/shellescape v1.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/chromedp/sysutil v1.0.0 // indirect
-	github.com/danieljoos/wincred v1.2.0 // indirect
+	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/fgprof v0.9.3 // indirect
