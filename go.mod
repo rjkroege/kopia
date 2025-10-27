@@ -25,7 +25,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/google/uuid v1.3.1
 	github.com/gorilla/mux v1.8.0
-	github.com/hanwen/go-fuse/v2 v2.4.0
+	github.com/hanwen/go-fuse/v2 v2.9.0
 	github.com/hashicorp/cronexpr v1.1.2
 	github.com/klauspost/compress v1.17.0
 	github.com/klauspost/pgzip v1.2.6
@@ -60,8 +60,8 @@ require (
 	golang.org/x/mod v0.13.0
 	golang.org/x/net v0.16.0
 	golang.org/x/oauth2 v0.13.0
-	golang.org/x/sync v0.4.0
-	golang.org/x/sys v0.13.0
+	golang.org/x/sync v0.10.0
+	golang.org/x/sys v0.28.0
 	golang.org/x/term v0.13.0
 	golang.org/x/text v0.13.0
 	google.golang.org/api v0.146.0
