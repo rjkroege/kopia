@@ -1,0 +1,42 @@
+name: Storj Full Test (fork-only, not for upstream)
+# Personal validation harness for the Storj provider-test wiring proposed
+# upstream in .github/workflows/providers-extra.yml's "Storj" step. Runs on
+# this fork (rjkroege/kopia) using STORJ_ACCESS_GRANT/STORJ_TEST_BUCKET
+# secrets configured here, without the "github.repository == 'kopia/kopia'"
+# gate the shared provider workflows use. See prompts/004-storj-with-fulltest.md
+# for the runbook and for why this lives in its own file instead of touching
+# that gate in providers-extra.yml.
+on:
+  push:
+    branches: [ better-storj-fulltest ]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'branch or git ref to use for the build'
+        required: true
+        default: 'better-storj-fulltest'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  provider-test:
+    name: Storj Full Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.inputs.ref || github.ref }}
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: 'go.mod'
+    - name: Install Dependencies
+      run: make provider-tests-deps
+    - name: Storj
+      run: make provider-tests PROVIDER_TEST_TARGET=storj
+      env:
+        STORJ_ACCESS_GRANT: ${{ secrets.STORJ_ACCESS_GRANT }}
+        STORJ_TEST_BUCKET: ${{ secrets.STORJ_TEST_BUCKET }}
