@@ -179,23 +179,28 @@ func RunExclusive(ctx context.Context, rep repo.DirectRepositoryWriter, mode Mod
 		return nil
 	}
 
-	lockFile := rep.ConfigFilename() + ".mlock"
-	userLog(ctx).Debugf("Acquiring maintenance lock in file %v", lockFile)
+	// The local lock is a file next to the config file. A repository opened with
+	// an in-memory config (repo.OpenWithLocalConfig) has no config file and so no
+	// local lock; the repository-level maintenance owner still serialises runs.
+	if cfg := rep.ConfigFilename(); cfg != "" {
+		lockFile := cfg + ".mlock"
+		userLog(ctx).Debugf("Acquiring maintenance lock in file %v", lockFile)
 
-	// acquire local lock on a config file
-	l := flock.New(lockFile)
+		// acquire local lock on a config file
+		l := flock.New(lockFile)
 
-	ok, err := l.TryLock()
-	if err != nil {
-		return errors.Wrap(err, "error acquiring maintenance lock")
+		ok, err := l.TryLock()
+		if err != nil {
+			return errors.Wrap(err, "error acquiring maintenance lock")
+		}
+
+		if !ok {
+			userLog(ctx).Debug("maintenance is already in progress locally")
+			return nil
+		}
+
+		defer l.Unlock() //nolint:errcheck
 	}
-
-	if !ok {
-		userLog(ctx).Debug("maintenance is already in progress locally")
-		return nil
-	}
-
-	defer l.Unlock() //nolint:errcheck
 
 	runParams := RunParameters{rep, mode, p, time.Time{}}
 

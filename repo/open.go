@@ -21,6 +21,7 @@ import (
 	"github.com/kopia/kopia/internal/crypto"
 	"github.com/kopia/kopia/internal/feature"
 	"github.com/kopia/kopia/internal/metrics"
+	"github.com/kopia/kopia/internal/ospath"
 	"github.com/kopia/kopia/internal/repodiag"
 	"github.com/kopia/kopia/internal/retry"
 	"github.com/kopia/kopia/repo/blob"
@@ -105,16 +106,7 @@ func Open(ctx context.Context, configFile, password string, options *Options) (r
 		}
 	}()
 
-	if options == nil {
-		options = &Options{}
-	}
-
-	if options.OnFatalError == nil {
-		options.OnFatalError = func(err error) {
-			log(ctx).Errorf("FATAL: %v", err)
-			os.Exit(1)
-		}
-	}
+	options = withDefaultOptions(ctx, options)
 
 	configFile, err = filepath.Abs(configFile)
 	if err != nil {
@@ -126,6 +118,54 @@ func Open(ctx context.Context, configFile, password string, options *Options) (r
 		return nil, err
 	}
 
+	return openWithLocalConfig(ctx, configFile, lc, password, options)
+}
+
+// OpenWithLocalConfig opens the Repository described by an in-memory LocalConfig,
+// with no configuration file at all. The caller owns the configuration (for
+// example keeping the storage credentials in a keychain) and nothing is ever
+// written back: throttling-limit updates stay in memory and ConfigFilename() of the
+// returned DirectRepository is empty. Caching.CacheDirectory, when set, must be
+// absolute because there is no config file directory to resolve it against.
+func OpenWithLocalConfig(ctx context.Context, lc *LocalConfig, password string, options *Options) (rep Repository, err error) {
+	ctx, span := tracer.Start(ctx, "OpenRepositoryWithLocalConfig")
+	defer span.End()
+
+	defer func() {
+		if err != nil {
+			log(ctx).Errorf("failed to open repository: %v", err)
+		}
+	}()
+
+	if lc == nil {
+		return nil, errors.New("local config is required")
+	}
+
+	if lc.Caching != nil && lc.Caching.CacheDirectory != "" && !ospath.IsAbs(lc.Caching.CacheDirectory) {
+		return nil, errors.New("cache directory must be absolute when there is no config file")
+	}
+
+	return openWithLocalConfig(ctx, "", lc, password, withDefaultOptions(ctx, options))
+}
+
+func withDefaultOptions(ctx context.Context, options *Options) *Options {
+	if options == nil {
+		options = &Options{}
+	}
+
+	if options.OnFatalError == nil {
+		options.OnFatalError = func(err error) {
+			log(ctx).Errorf("FATAL: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	return options
+}
+
+// openWithLocalConfig is the part of Open shared with OpenWithLocalConfig.
+// configFile is empty when the configuration is held in memory.
+func openWithLocalConfig(ctx context.Context, configFile string, lc *LocalConfig, password string, options *Options) (Repository, error) {
 	if lc.PermissiveCacheLoading && !lc.ReadOnly {
 		return nil, ErrCannotWriteToRepoConnectionWithPermissiveCacheLoading
 	}
@@ -285,16 +325,20 @@ func openWithConfig(ctx context.Context, st blob.Storage, cliOpts ClientOptions,
 		return nil, errors.Wrap(ferr, "unable to add throttler")
 	}
 
-	throttler.OnUpdate(func(l throttling.Limits) error {
-		lc2, err2 := LoadConfigFromFile(configFile)
-		if err2 != nil {
-			return err2
-		}
+	// persist throttling changes only when there is a config file; with an
+	// in-memory configuration (OpenWithLocalConfig) the limits stay in memory.
+	if configFile != "" {
+		throttler.OnUpdate(func(l throttling.Limits) error {
+			lc2, err2 := LoadConfigFromFile(configFile)
+			if err2 != nil {
+				return err2
+			}
 
-		lc2.Throttling = &l
+			lc2.Throttling = &l
 
-		return lc2.writeToFile(configFile)
-	})
+			return lc2.writeToFile(configFile)
+		})
+	}
 
 	blobcfg, err := fmgr.BlobCfgBlob(ctx)
 	if err != nil {
