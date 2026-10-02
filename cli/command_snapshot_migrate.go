@@ -294,7 +294,7 @@ func (c *commandSnapshotMigrate) migrateSingleSourceSnapshot(ctx context.Context
 	}
 
 	if resume != nil {
-		log(ctx).Infof("resuming from checkpoint of %v made at %v", s, formatTimestamp(resume.StartTime.ToTime()))
+		log(ctx).Infof("resuming from checkpoint of %v made at %v", s, formatTimestamp(resume.EndTime.ToTime()))
 		previous = append(previous, resume)
 	}
 
@@ -323,7 +323,7 @@ func (c *commandSnapshotMigrate) migrateSingleSourceSnapshot(ctx context.Context
 	return nil
 }
 
-// latestMigrationCheckpoint returns the newest checkpoint for the source that was written
+// latestMigrationCheckpoint returns the most recently written checkpoint for the source that was written
 // by an interrupted migration. Checkpoints carry the wall-clock time of the migration rather
 // than the source snapshot's start time, so snapshot.FindPreviousManifests never returns them.
 // Snapshots are migrated oldest-first, so a checkpoint newer than startTime belongs to the
@@ -341,7 +341,8 @@ func latestMigrationCheckpoint(ctx context.Context, rep repo.Repository, si snap
 			continue
 		}
 
-		if latest == nil || p.StartTime.After(latest.StartTime) {
+		// All checkpoints of one upload share its StartTime; EndTime orders them.
+		if latest == nil || p.EndTime.After(latest.EndTime) {
 			latest = p
 		}
 	}
