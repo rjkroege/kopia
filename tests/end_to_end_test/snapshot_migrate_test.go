@@ -105,6 +105,40 @@ func (s *formatSpecificTestSuite) TestSnapshotMigrateWithIgnores(t *testing.T) {
 	require.NotContains(t, lines, "file2.txt")
 }
 
+func (s *formatSpecificTestSuite) TestSnapshotMigrateSkip(t *testing.T) {
+	t.Parallel()
+
+	runner := testenv.NewInProcRunner(t)
+	e := testenv.NewCLITest(t, s.formatFlags, runner)
+
+	defer e.RunAndExpectSuccess(t, "repo", "disconnect")
+
+	e.RunAndExpectSuccess(t, "repo", "create", "filesystem", "--path", e.RepoDir)
+	e.RunAndExpectSuccess(t, "snapshot", "create", sharedTestDataDir1)
+	e.RunAndExpectSuccess(t, "snapshot", "create", sharedTestDataDir1)
+	e.RunAndExpectSuccess(t, "snapshot", "create", sharedTestDataDir1)
+
+	var src []cli.SnapshotManifest
+
+	testutil.MustParseJSONLines(t, e.RunAndExpectSuccess(t, "snapshot", "list", "-a", sharedTestDataDir1, "--json"), &src)
+	require.Len(t, src, 3)
+
+	skipped := src[1]
+
+	dstenv := testenv.NewCLITest(t, s.formatFlags, runner)
+	dstenv.RunAndExpectSuccess(t, "repo", "create", "filesystem", "--path", dstenv.RepoDir)
+	dstenv.RunAndExpectSuccess(t, "snapshot", "migrate", "--source-config", filepath.Join(e.ConfigDir, ".kopia.config"), "--all", "--skip", string(skipped.ID))
+
+	var dst []cli.SnapshotManifest
+
+	testutil.MustParseJSONLines(t, dstenv.RunAndExpectSuccess(t, "snapshot", "list", "-a", sharedTestDataDir1, "--json"), &dst)
+	require.Len(t, dst, 2)
+
+	for _, m := range dst {
+		require.False(t, m.StartTime.Equal(skipped.StartTime), "skipped snapshot was migrated")
+	}
+}
+
 func writeCompressibleFile(fname string) error {
 	f, err := os.Create(fname)
 	if err != nil {
