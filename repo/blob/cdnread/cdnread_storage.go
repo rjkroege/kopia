@@ -60,15 +60,15 @@ func (s *splitPathStorage) objectName(id blob.ID) string {
 	return s.opt.Prefix + string(id)
 }
 
-// errTransientCDN marks CDN failures worth retrying: throttling (429), server
+// transientCDNError marks CDN failures worth retrying: throttling (429), server
 // errors (5xx) and transport failures. CDNs and the origins behind them shed
 // load with 429s, so a burst of parallel reads must back off, not fail.
-type errTransientCDN struct{ error }
+type transientCDNError struct{ error }
 
-func (e errTransientCDN) Unwrap() error { return e.error }
+func (e transientCDNError) Unwrap() error { return e.error }
 
 func isTransientCDNError(err error) bool {
-	var t errTransientCDN
+	var t transientCDNError
 
 	return errors.As(err, &t)
 }
@@ -79,7 +79,6 @@ func (s *splitPathStorage) GetBlob(ctx context.Context, id blob.ID, offset, leng
 		return s.Storage.GetBlob(ctx, id, offset, length, output)
 	}
 
-	//nolint:wrapcheck
 	return retry.WithExponentialBackoffNoValue(ctx, fmt.Sprintf("CDN GetBlob(%v,%v,%v)", id, offset, length), func() error {
 		return s.getBlobFromCDN(ctx, id, offset, length, output)
 	}, isTransientCDNError)
@@ -114,7 +113,7 @@ func (s *splitPathStorage) getBlobFromCDN(ctx context.Context, id blob.ID, offse
 			return errors.Wrapf(err, "GET %v", url)
 		}
 
-		return errTransientCDN{errors.Wrapf(err, "GET %v", url)}
+		return transientCDNError{errors.Wrapf(err, "GET %v", url)}
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -130,7 +129,7 @@ func (s *splitPathStorage) getBlobFromCDN(ctx context.Context, id blob.ID, offse
 
 	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
 		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return errTransientCDN{errors.Errorf("CDN response %v for %v", resp.Status, url)}
+		return transientCDNError{errors.Errorf("CDN response %v for %v", resp.Status, url)}
 
 	default:
 		return errors.Errorf("unexpected CDN response %v for %v", resp.Status, url)
@@ -141,7 +140,7 @@ func (s *splitPathStorage) getBlobFromCDN(ctx context.Context, id blob.ID, offse
 	}
 
 	if err := iocopy.JustCopy(output, resp.Body); err != nil {
-		return errTransientCDN{errors.Wrap(err, "unable to copy data")}
+		return transientCDNError{errors.Wrap(err, "unable to copy data")}
 	}
 
 	//nolint:wrapcheck

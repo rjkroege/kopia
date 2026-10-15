@@ -20,16 +20,13 @@ import (
 	"github.com/kopia/kopia/repo/blob/sharded"
 )
 
-const (
-	storjStorageType = "storj"
-
-	// TODO(rjk): I'm not certain that I'm correctly handling modification times.
-	timeMapKey = "Kopia-Mtime" // case is important, first letter must be capitalized.
-)
+const storjStorageType = "storj"
 
 type storjStorage struct {
 	sharded.Storage
 	blob.DefaultProviderImplementation
+
+	impl *impl
 }
 
 type impl struct {
@@ -55,6 +52,7 @@ func translateError(err error) error {
 func (storj *impl) MakeFileName(blobID blob.ID) string {
 	return string(blobID)
 }
+
 func (storj *impl) GetBlobIDFromFileName(name string) (blob.ID, bool) {
 	// sharded.Storage persists its shard-layout config as a real object
 	// named sharded.ParametersFile at the bucket root; it is not a blob and
@@ -70,16 +68,17 @@ func (storj *impl) _getBlobFromPath(ctx context.Context, key string, offset, len
 	if offset < 0 {
 		return blob.ErrInvalidRange
 	}
+
 	opts := uplink.DownloadOptions{
 		Offset: offset,
 		Length: length,
 	}
+
 	dl, err := storj.project.DownloadObject(ctx, storj.BucketName, key, &opts)
 	if err != nil {
 		return errors.Wrap(translateError(err), "GetBlobFromPath")
 	}
-	// TODO(rjk): Is this erroring a fatal?
-	defer dl.Close()
+	defer dl.Close() //nolint:errcheck
 
 	// TODO(rjk): Why is this necessary? I would *not* have expected this but
 	// validate-provider requires this. Without this line, _getBlobFromPath
@@ -94,9 +93,9 @@ func (storj *impl) _getBlobFromPath(ctx context.Context, key string, offset, len
 	return blob.EnsureLengthExactly(output.Length(), length)
 }
 
-func (storj *impl) GetBlobFromPath(ctx context.Context, dirPath, path string, offset, length int64, output blob.OutputBuffer) error {
-	return retry.WithExponentialBackoffNoValue(ctx, "GetBlobFromPath("+path+")", func() error {
-		return storj._getBlobFromPath(ctx, path, offset, length, output)
+func (storj *impl) GetBlobFromPath(ctx context.Context, _, filePath string, offset, length int64, output blob.OutputBuffer) error {
+	return retry.WithExponentialBackoffNoValue(ctx, "GetBlobFromPath("+filePath+")", func() error {
+		return storj._getBlobFromPath(ctx, filePath, offset, length, output)
 	}, isRetriable)
 }
 
@@ -105,15 +104,17 @@ func (storj *impl) _getMetadataFromPath(ctx context.Context, key string) (blob.M
 	if err != nil {
 		return blob.Metadata{}, errors.Wrap(translateError(err), "_getMetadataFromPath StatObject fail")
 	}
+
 	bmd := blob.Metadata{
 		BlobID:    blob.ID(o.Key),
 		Length:    o.System.ContentLength,
 		Timestamp: o.System.Created,
 	}
+
 	return bmd, nil
 }
 
-func (storj *impl) GetMetadataFromPath(ctx context.Context, dirPath, filePath string) (blob.Metadata, error) {
+func (storj *impl) GetMetadataFromPath(ctx context.Context, _, filePath string) (blob.Metadata, error) {
 	return retry.WithExponentialBackoff(ctx, "GetMetadataFromPath("+filePath+")", func() (blob.Metadata, error) {
 		return storj._getMetadataFromPath(ctx, filePath)
 	}, isRetriable)
@@ -154,13 +155,13 @@ func (storj *impl) _putBlob(ctx context.Context, key string, dataSlices blob.Byt
 		info := upfd.Info()
 		*opts.GetModTime = info.System.Created
 	}
+
 	return nil
 }
 
-func (s impl) PutBlobInPath(ctx context.Context, dirPath, filePath string, dataSlices blob.Bytes, opts blob.PutOptions) error {
+func (storj *impl) PutBlobInPath(ctx context.Context, _, filePath string, dataSlices blob.Bytes, opts blob.PutOptions) error {
 	return retry.WithExponentialBackoffNoValue(ctx, "PutBlobInPath("+filePath+")", func() error {
-		//nolint:wrapcheck
-		return s._putBlob(ctx, filePath, dataSlices, opts)
+		return storj._putBlob(ctx, filePath, dataSlices, opts)
 	}, isRetriable)
 }
 
@@ -169,10 +170,9 @@ func (storj *impl) _deleteBlobInPath(ctx context.Context, key string) error {
 	return errors.Wrap(translateError(err), "DeleteBlob")
 }
 
-func (s *impl) DeleteBlobInPath(ctx context.Context, dirPath, filePath string) error {
-	//nolint:wrapcheck
+func (storj *impl) DeleteBlobInPath(ctx context.Context, _, filePath string) error {
 	return retry.WithExponentialBackoffNoValue(ctx, "DeleteBlob("+filePath+")", func() error {
-		return s._deleteBlobInPath(ctx, filePath)
+		return storj._deleteBlobInPath(ctx, filePath)
 	}, isRetriable)
 }
 
@@ -181,48 +181,53 @@ type storjfileinfo uplink.Object
 
 func (e *storjfileinfo) Name() string {
 	// Storj prefix listings include the full path but ReadDir expects just
-	// the the Base.
+	// the Base.
 	return path.Base(e.Key)
 }
+
 func (e *storjfileinfo) Size() int64 {
 	return e.System.ContentLength
 }
+
 func (e *storjfileinfo) Mode() os.FileMode {
 	if e.IsPrefix {
 		return os.ModeDir
-	} else {
-		return 0
 	}
+
+	return 0
 }
+
 func (e *storjfileinfo) ModTime() time.Time {
 	return e.System.Created
 }
+
 func (e *storjfileinfo) IsDir() bool {
 	return e.IsPrefix
 }
+
 func (e *storjfileinfo) Sys() any {
 	return nil
 }
 
-func (s *impl) ReadDir(ctx context.Context, path string) ([]os.FileInfo, error) {
+func (storj *impl) ReadDir(ctx context.Context, dirPath string) ([]os.FileInfo, error) {
 	listing := []os.FileInfo{}
 
-	if strings.HasPrefix(path, "/") {
-		path = path[1:]
-	}
-	if path != "" {
-		path = path + "/"
+	dirPath = strings.TrimPrefix(dirPath, "/")
+
+	if dirPath != "" {
+		dirPath += "/"
 	}
 
-	oi := s.project.ListObjects(ctx, s.Options.BucketName, &uplink.ListObjectsOptions{
+	oi := storj.project.ListObjects(ctx, storj.BucketName, &uplink.ListObjectsOptions{
 		System: true,
-		Prefix: path,
+		Prefix: dirPath,
 	})
 
 	for {
 		if !oi.Next() {
 			return listing, errors.Wrap(oi.Err(), "ReadDir iteration")
 		}
+
 		listing = append(listing, (*storjfileinfo)(oi.Item()))
 	}
 }
@@ -230,16 +235,16 @@ func (s *impl) ReadDir(ctx context.Context, path string) ([]os.FileInfo, error) 
 func (storj *storjStorage) ConnectionInfo() blob.ConnectionInfo {
 	return blob.ConnectionInfo{
 		Type:   storjStorageType,
-		Config: &storj.Storage.Impl.(*impl).Options, //nolint:forcetypeassert
+		Config: &storj.impl.Options,
 	}
 }
 
 func (storj *storjStorage) DisplayName() string {
-	return fmt.Sprintf("Storj: %v", storj.Storage.Impl.(*impl).BucketName)
+	return fmt.Sprintf("Storj: %v", storj.impl.BucketName)
 }
 
-func (storj *storjStorage) Close(ctx context.Context) error {
-	return errors.Wrap(storj.Storage.Impl.(*impl).project.Close(), "error closing Storj project")
+func (storj *storjStorage) Close(_ context.Context) error {
+	return errors.Wrap(storj.impl.project.Close(), "error closing Storj project")
 }
 
 // Code is based on the usage flow documented at
@@ -278,9 +283,10 @@ func _new(ctx context.Context, opt *Options, isCreate bool) (*storjStorage, erro
 
 	storj := &storjStorage{
 		Storage: sharded.New(si, opt.Prefix, opt.Options, isCreate),
+		impl:    si,
 	}
 
-	return storj, err
+	return storj, nil
 }
 
 // New creates new Storj-backed storage with specified options.

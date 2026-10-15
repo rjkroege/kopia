@@ -72,7 +72,7 @@ func (c *connectOptions) setup(svc appServices, cmd *kingpin.CmdClause) {
 
 	cmd.Flag("override-hostname", "Override hostname used by this repository connection").Hidden().StringVar(&c.connectHostname)
 	cmd.Flag("override-username", "Override username used by this repository connection").Hidden().StringVar(&c.connectUsername)
-	cmd.Flag("check-for-updates", "Periodically check for Kopia updates on GitHub").Default("true").Envar(svc.EnvName(checkForUpdatesEnvar)).BoolVar(&c.connectCheckForUpdates)
+	cmd.Flag("check-for-updates", "Periodically check for Kopia updates on GitHub").Default(trueStr).Envar(svc.EnvName(checkForUpdatesEnvar)).BoolVar(&c.connectCheckForUpdates)
 	cmd.Flag("readonly", "Make repository read-only to avoid accidental changes").BoolVar(&c.connectReadonly)
 	cmd.Flag("permissive-cache-loading", "Do not fail when loading bad cache index entries.  Repository must be opened in read-only mode").Hidden().BoolVar(&c.connectPermissiveCacheLoading)
 	cmd.Flag("description", "Human-readable description of the repository").StringVar(&c.connectDescription)
@@ -91,26 +91,22 @@ func (c *connectOptions) getFormatBlobCacheDuration() time.Duration {
 
 func (c *connectOptions) toRepoConnectOptions() *repo.ConnectOptions {
 	return &repo.ConnectOptions{
-		CachingOptions: content.CachingOptions{
-			CacheDirectory:              c.connectCacheDirectory,
-			ContentCacheSizeBytes:       c.contentCacheSizeMB << 20,       //nolint:mnd
-			ContentCacheSizeLimitBytes:  c.contentCacheSizeLimitMB << 20,  //nolint:mnd
-			MetadataCacheSizeBytes:      c.metadataCacheSizeMB << 20,      //nolint:mnd
-			MetadataCacheSizeLimitBytes: c.metadataCacheSizeLimitMB << 20, //nolint:mnd
-			MaxListCacheDuration:        content.DurationSeconds(c.maxListCacheDuration.Seconds()),
-			MinContentSweepAge:          content.DurationSeconds(c.contentMinSweepAge.Seconds()),
-			MinMetadataSweepAge:         content.DurationSeconds(c.metadataMinSweepAge.Seconds()),
-			MinIndexSweepAge:            content.DurationSeconds(c.indexMinSweepAge.Seconds()),
-		},
-		ClientOptions: repo.ClientOptions{
-			Hostname:                c.connectHostname,
-			Username:                c.connectUsername,
-			ReadOnly:                c.connectReadonly,
-			PermissiveCacheLoading:  c.connectPermissiveCacheLoading,
-			Description:             c.connectDescription,
-			EnableActions:           c.connectEnableActions,
-			FormatBlobCacheDuration: c.getFormatBlobCacheDuration(),
-		},
+		CacheDirectory:              c.connectCacheDirectory,
+		ContentCacheSizeBytes:       c.contentCacheSizeMB << 20,       //nolint:mnd
+		ContentCacheSizeLimitBytes:  c.contentCacheSizeLimitMB << 20,  //nolint:mnd
+		MetadataCacheSizeBytes:      c.metadataCacheSizeMB << 20,      //nolint:mnd
+		MetadataCacheSizeLimitBytes: c.metadataCacheSizeLimitMB << 20, //nolint:mnd
+		MaxListCacheDuration:        content.DurationSeconds(c.maxListCacheDuration.Seconds()),
+		MinContentSweepAge:          content.DurationSeconds(c.contentMinSweepAge.Seconds()),
+		MinMetadataSweepAge:         content.DurationSeconds(c.metadataMinSweepAge.Seconds()),
+		MinIndexSweepAge:            content.DurationSeconds(c.indexMinSweepAge.Seconds()),
+		Hostname:                    c.connectHostname,
+		Username:                    c.connectUsername,
+		ReadOnly:                    c.connectReadonly,
+		PermissiveCacheLoading:      c.connectPermissiveCacheLoading,
+		Description:                 c.connectDescription,
+		EnableActions:               c.connectEnableActions,
+		FormatBlobCacheDuration:     c.getFormatBlobCacheDuration(),
 	}
 }
 
@@ -127,7 +123,8 @@ func (c *App) runConnectCommandWithStorageAndPassword(ctx context.Context, co *c
 	configFile := c.repositoryConfigFileName()
 	if err := passwordpersist.OnSuccess(
 		ctx, repo.Connect(ctx, configFile, st, password, co.toRepoConnectOptions()),
-		c.passwordPersistenceStrategy(), configFile, password); err != nil {
+		c.passwordPersistenceStrategy(), configFile, password,
+	); err != nil {
 		return errors.Wrap(err, "error connecting to repository")
 	}
 

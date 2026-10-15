@@ -232,12 +232,7 @@ func (s *Server) isAuthenticated(rc requestContext) bool {
 	if err != nil {
 		userLog(rc.req.Context()).Errorf("unable to generate short-term auth cookie: %v", err)
 	} else {
-		http.SetCookie(rc.w, &http.Cookie{
-			Name:    kopiaAuthCookie,
-			Value:   ac,
-			Expires: now.Add(kopiaAuthCookieTTL),
-			Path:    "/",
-		})
+		http.SetCookie(rc.w, newCookie(rc.req.TLS != nil, kopiaAuthCookie, ac, now.Add(kopiaAuthCookieTTL)))
 
 		if s.options.LogRequests {
 			// Log successful authentication
@@ -246,6 +241,23 @@ func (s *Server) isAuthenticated(rc requestContext) bool {
 	}
 
 	return true
+}
+
+func newCookie(secure bool, name, value string, expires time.Time) *http.Cookie {
+	cookie := &http.Cookie{ //nolint:gosec
+		Name:     name,
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
+	}
+
+	if !expires.IsZero() {
+		cookie.Expires = expires
+	}
+
+	return cookie
 }
 
 func (s *Server) isAuthCookieValid(username, cookieValue string) bool {
@@ -388,7 +400,6 @@ func (s *Server) handleRequestPossiblyNotConnected(isAuthorized isAuthorizedFunc
 		rc.w.Header().Set("Content-Type", "application/json")
 
 		e := json.NewEncoder(rc.w)
-		e.SetIndent("", "  ")
 
 		var (
 			v   any
@@ -447,9 +458,7 @@ func (s *Server) Refresh() {
 	s.serverMutex.Lock()
 	defer s.serverMutex.Unlock()
 
-	ctx := s.rootctx
-
-	if err := s.refreshLocked(ctx); err != nil {
+	if err := s.refreshLocked(s.rootctx); err != nil {
 		userLog(s.rootctx).Warnw("refresh error", "err", err)
 	}
 }
@@ -833,11 +842,7 @@ func (s *Server) ServeStaticFiles(m *mux.Router, fs http.FileSystem) {
 			} else {
 				sessionID = uuid.NewString()
 
-				http.SetCookie(w, &http.Cookie{
-					Name:  kopiaSessionCookie,
-					Value: sessionID,
-					Path:  "/",
-				})
+				http.SetCookie(w, newCookie(r.TLS != nil, kopiaSessionCookie, sessionID, time.Time{}))
 			}
 
 			http.ServeContent(w, r, "/", clock.Now(), bytes.NewReader(s.patchIndexBytes(sessionID, indexBytes)))
@@ -998,7 +1003,8 @@ func (s *Server) runSnapshotTask(ctx context.Context, src snapshot.SourceInfo, i
 		fmt.Sprintf("%v at %v", src, clock.Now().Format(time.RFC3339)),
 		func(ctx context.Context, ctrl uitask.Controller) error {
 			return inner(ctx, ctrl, &result)
-		}), "snapshot task")
+		},
+	), "snapshot task")
 	if err != nil {
 		result.Error = err.Error()
 	}
