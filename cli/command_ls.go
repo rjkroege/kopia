@@ -21,7 +21,7 @@ type commandList struct {
 	recursive     bool
 	showOID       bool
 	errorSummary  bool
-	emitJson      bool
+	emitJSON      bool
 	path          string
 	notfirst      bool
 
@@ -36,8 +36,8 @@ func (c *commandList) setup(svc appServices, parent commandParent) {
 	cmd.Flag("human-readable", "Show human-readable sizes").Short('h').BoolVar(&c.humanReadable)
 	cmd.Flag("recursive", "Recursive output").Short('r').BoolVar(&c.recursive)
 	cmd.Flag("show-object-id", "Show object IDs").Short('o').BoolVar(&c.showOID)
-	cmd.Flag("error-summary", "Emit error summary").Default("true").BoolVar(&c.errorSummary)
-	cmd.Flag("emit-json", "Dump JSON format").Short('j').Default("false").BoolVar(&c.emitJson)
+	cmd.Flag("error-summary", "Emit error summary").Default(trueStr).BoolVar(&c.errorSummary)
+	cmd.Flag("emit-json", "Dump JSON format").Short('j').Default("false").BoolVar(&c.emitJSON)
 	cmd.Arg("object-path", "Path").Required().StringVar(&c.path)
 	cmd.Action(svc.repositoryReaderAction(c.run))
 
@@ -58,18 +58,25 @@ func (c *commandList) run(ctx context.Context, rep repo.Repository) error {
 		}
 	}
 
-	if c.emitJson {
+	if c.emitJSON {
 		c.enc = json.NewEncoder(os.Stdout)
-		os.Stdout.WriteString("[\n")
+
+		if _, err := os.Stdout.WriteString("[\n"); err != nil {
+			return errors.Wrap(err, "unable to write JSON output")
+		}
 	}
 
-	err2 := c.listDirectory(ctx, dir, prefix, "")
-
-	if c.emitJson {
-		os.Stdout.WriteString("]\n")
+	if err := c.listDirectory(ctx, dir, prefix, ""); err != nil {
+		return err
 	}
 
-	return err2
+	if c.emitJSON {
+		if _, err := os.Stdout.WriteString("]\n"); err != nil {
+			return errors.Wrap(err, "unable to write JSON output")
+		}
+	}
+
+	return nil
 }
 
 func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix, indent string) error {
@@ -81,7 +88,7 @@ func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix,
 
 	e, err := iter.Next(ctx)
 	for e != nil {
-		if c.emitJson {
+		if c.emitJSON {
 			if err2 := c.printDirectoryJSONEntry(ctx, e, prefix, indent); err2 != nil {
 				return err2
 			}
@@ -111,7 +118,8 @@ func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix,
 	return nil
 }
 
-type JsonWithLong struct {
+// jsonWithLong is the --emit-json entry format with --long.
+type jsonWithLong struct {
 	Mode         string
 	Size         int64
 	Time         string
@@ -120,13 +128,15 @@ type JsonWithLong struct {
 	ErrorSummary string
 }
 
-type JsonWithOid struct {
+// jsonWithOID is the --emit-json entry format with --show-object-id.
+type jsonWithOID struct {
 	Oid          string
 	DisplayName  string
 	ErrorSummary string
 }
 
-type JsonDefault struct {
+// jsonDefault is the default --emit-json entry format.
+type jsonDefault struct {
 	DisplayName  string
 	ErrorSummary string
 }
@@ -149,35 +159,40 @@ func (c *commandList) printDirectoryJSONEntry(ctx context.Context, e fs.Entry, p
 	}
 
 	if c.notfirst {
-		os.Stdout.WriteString(",\n")
-	} else {
-		c.notfirst = true
+		if _, err := os.Stdout.WriteString(",\n"); err != nil {
+			return errors.Wrap(err, "unable to write JSON output")
+		}
 	}
+
+	c.notfirst = true
+
+	var obj any
 
 	switch {
 	case c.long:
-		obj := &JsonWithLong{
-			Mode:         fmt.Sprintf("%v", e.Mode()),
+		obj = &jsonWithLong{
+			Mode:         e.Mode().String(),
 			Size:         e.Size(),
 			Time:         formatTimestamp(e.ModTime().Local()),
 			Oid:          oid,
 			DisplayName:  c.nameToDisplay(prefix, e),
 			ErrorSummary: errorSummary,
 		}
-		c.enc.Encode(obj)
 	case c.showOID:
-		obj := &JsonWithOid{
+		obj = &jsonWithOID{
 			Oid:          oid,
 			DisplayName:  c.nameToDisplay(prefix, e),
 			ErrorSummary: errorSummary,
 		}
-		c.enc.Encode(obj)
 	default:
-		obj := &JsonDefault{
+		obj = &jsonDefault{
 			DisplayName:  c.nameToDisplay(prefix, e),
 			ErrorSummary: errorSummary,
 		}
-		c.enc.Encode(obj)
+	}
+
+	if err := c.enc.Encode(obj); err != nil {
+		return errors.Wrap(err, "unable to encode JSON entry")
 	}
 
 	if c.recursive {

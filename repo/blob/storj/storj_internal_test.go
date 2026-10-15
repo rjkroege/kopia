@@ -1,6 +1,5 @@
 //go:build !no_extra_providers
 
-// Package storj implements Storage based on the Storj distributed storage system.
 package storj
 
 import (
@@ -13,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/pkg/errors"
 
+	"github.com/kopia/kopia/internal/clock"
 	"github.com/kopia/kopia/internal/gather"
 	"github.com/kopia/kopia/repo/blob"
 )
@@ -43,10 +43,12 @@ func TestConnect(t *testing.T) {
 // TODO(rjk): Would it be nicer to populate the options object in this function?
 func getStorjTestConfiguration(t *testing.T) string {
 	t.Helper()
+
 	accessgrant := os.Getenv("STORJ_ACCESS_GRANT")
 	if accessgrant == "" {
 		t.Skip("skipping test because Storj access grant is not set")
 	}
+
 	return accessgrant
 }
 
@@ -55,10 +57,12 @@ func getStorjTestConfiguration(t *testing.T) string {
 // instead of needing separate access to a hardcoded bucket name.
 func getStorjTestBucket(t *testing.T) string {
 	t.Helper()
+
 	bucket := os.Getenv("STORJ_TEST_BUCKET")
 	if bucket == "" {
 		t.Skip("skipping test because Storj test bucket is not set")
 	}
+
 	return bucket
 }
 
@@ -83,7 +87,7 @@ func TestListBlobs(t *testing.T) {
 	// slate in case a previous run's cleanup didn't complete.
 	deleteAllTestBlobs(t, ctx, storj)
 
-	now := time.Now()
+	now := clock.Now()
 	diffopts := cmpopts.EquateApproxTime(5 * time.Second)
 	sortopts := cmpopts.SortSlices(func(a, b blob.Metadata) bool {
 		return string(a.BlobID) < string(b.BlobID)
@@ -226,7 +230,7 @@ func TestPutOpts(t *testing.T) {
 
 	// Put the same blob again. I did not expect this to fail but
 	// apparently there is some kind of propagation delay that
-	// must be accomodated when over-writing an existing blob.
+	// must be accommodated when over-writing an existing blob.
 	if err := storj.PutBlob(ctx, blob.ID(blobname), gather.FromSlice([]byte(blobcontents)), blob.PutOptions{}); err != nil {
 		t.Errorf("expected an error free write: %#v", err)
 	}
@@ -258,7 +262,7 @@ func TestPutGetBlob(t *testing.T) {
 	defer cleanupTestBlobs(t, ctx, storj)
 
 	diffopts := cmpopts.EquateApproxTime(2 * time.Second)
-	now := time.Now()
+	now := clock.Now()
 
 	// Put the blob.
 	if err := storj.PutBlob(ctx, blob.ID(blobname), gather.FromSlice([]byte(blobcontents)), blob.PutOptions{}); err != nil {
@@ -270,6 +274,7 @@ func TestPutGetBlob(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected an error free GetMetadata for %q: %v", blobname, err)
 	}
+
 	got, want := metadata, blob.Metadata{BlobID: blob.ID(blobname), Length: 11, Timestamp: now}
 	if diff := cmp.Diff(want, got, diffopts); diff != "" {
 		t.Errorf("response mismatch (-want +got):\n%s", diff)
@@ -280,6 +285,7 @@ func TestPutGetBlob(t *testing.T) {
 	if err := storj.GetBlob(ctx, blob.ID(blobname), 0, int64(len(blobcontents)), wb); err != nil {
 		t.Fatalf("expected an error-free get: %v", err)
 	}
+
 	if got, want := string(wb.ToByteSlice()), blobcontents; got != want {
 		t.Errorf("read-back contents don't match. got %v, want %v", got, want)
 	}
@@ -289,6 +295,7 @@ func TestPutGetBlob(t *testing.T) {
 	if err := storj.GetBlob(ctx, blob.ID(blobname), 0, -1, wb); err != nil {
 		t.Errorf("expected an error-free get: %v", err)
 	}
+
 	if got, want := string(wb.ToByteSlice()), blobcontents; got != want {
 		t.Errorf("read-back contents don't match. got %v, want %v", got, want)
 	}
@@ -315,6 +322,7 @@ func TestPutGetBlob(t *testing.T) {
 	if err := storj.GetBlob(ctx, blob.ID(blobname), 3, int64(4), wb); err != nil {
 		t.Errorf("expected an error-free get: %#v", err)
 	}
+
 	if got, want := string(wb.ToByteSlice()), blobcontents[3:3+4]; got != want {
 		t.Errorf("read-back contents don't match. got %v, want %v", got, want)
 	}

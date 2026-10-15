@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kopia/kopia/internal/blobtesting"
@@ -36,8 +37,9 @@ func newTestStorage(t *testing.T, handler http.HandlerFunc) *splitPathStorage {
 
 func TestGetBlob_ServesPackBlobsFromCDN(t *testing.T) {
 	s := newTestStorage(t, func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/psome-blob", r.URL.Path)
-		require.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/psome-blob", r.URL.Path)
+		assert.Equal(t, http.MethodGet, r.Method)
+
 		_, _ = w.Write([]byte(testBlobContent))
 	})
 
@@ -63,7 +65,7 @@ func TestGetBlob_NotFound(t *testing.T) {
 
 func TestGetBlob_Range(t *testing.T) {
 	s := newTestStorage(t, func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "bytes=2-4", r.Header.Get("Range"))
+		assert.Equal(t, "bytes=2-4", r.Header.Get("Range"))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write([]byte(testBlobContent[2:5]))
 	})
@@ -78,7 +80,8 @@ func TestGetBlob_Range(t *testing.T) {
 
 func TestGetBlob_QPrefixServedFromCDN(t *testing.T) {
 	s := newTestStorage(t, func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/qsome-blob", r.URL.Path)
+		assert.Equal(t, "/qsome-blob", r.URL.Path)
+
 		_, _ = w.Write([]byte(testBlobContent))
 	})
 
@@ -103,7 +106,7 @@ func TestGetBlob_MutableControlBlobsBypassCDN(t *testing.T) {
 	data.Append([]byte(testBlobContent))
 
 	for _, id := range []blob.ID{"kopia.repository", "kopia.blobcfg", "kopia.maintenance", "nsome-index-blob", "sSomeSession"} {
-		require.NoError(t, s.Storage.PutBlob(ctx, id, data.Bytes(), blob.PutOptions{}))
+		require.NoError(t, s.PutBlob(ctx, id, data.Bytes(), blob.PutOptions{}))
 
 		var output gather.WriteBuffer
 

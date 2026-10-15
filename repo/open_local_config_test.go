@@ -21,7 +21,7 @@ const inMemoryTestPassword = "in-memory-password"
 
 // newLocalConfigForTest initializes a filesystem repository and returns the
 // LocalConfig that would otherwise have been persisted to a config file.
-func newLocalConfigForTest(t *testing.T) (*repo.LocalConfig, string) {
+func newLocalConfigForTest(t *testing.T) *repo.LocalConfig {
 	t.Helper()
 
 	ctx := testlogging.Context(t)
@@ -42,12 +42,12 @@ func newLocalConfigForTest(t *testing.T) (*repo.LocalConfig, string) {
 			ContentCacheSizeBytes:      1 << 20,
 			ContentCacheSizeLimitBytes: 1 << 20,
 		},
-	}, repoDir
+	}
 }
 
 func TestOpenWithLocalConfigRoundTripWithoutConfigFile(t *testing.T) {
 	ctx := testlogging.Context(t)
-	lc, _ := newLocalConfigForTest(t)
+	lc := newLocalConfigForTest(t)
 
 	// run from an empty directory so any stray file (e.g. ".mlock") is visible.
 	cwd := testutil.TempDirectory(t)
@@ -104,7 +104,7 @@ func TestOpenWithLocalConfigRoundTripWithoutConfigFile(t *testing.T) {
 
 func TestOpenWithLocalConfigRejectsBadInput(t *testing.T) {
 	ctx := testlogging.Context(t)
-	lc, _ := newLocalConfigForTest(t)
+	lc := newLocalConfigForTest(t)
 
 	_, err := repo.OpenWithLocalConfig(ctx, lc, "wrong-password", nil)
 	require.ErrorIs(t, err, repo.ErrInvalidPassword)

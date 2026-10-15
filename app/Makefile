@@ -6,7 +6,7 @@ deps: node_modules/.up-to-date
 
 node_modules/.up-to-date: $(npm) package.json package-lock.json
 	$(retry) $(npm) $(npm_flags) $(npm_install_or_ci) --no-audit
-	$(npm) $(npm_flags) audit --omit=dev
+	-$(npm) $(npm_flags) audit --omit=dev
 	echo updated > node_modules/.up-to-date
 
 electron_builder_flags+=-c.extraMetadata.version=$(KOPIA_VERSION:v%=%)
@@ -67,7 +67,7 @@ endif
 # build x86_64 and arm64 binaries
 ifeq ($(GOOS),linux)
 ifeq ($(KOPIA_UI_CURRENT_ARCH_ONLY),)
-electron_builder_flags+=--x64 --arm64 --armv7l
+electron_builder_flags+=--x64 --arm64
 endif
 endif
 

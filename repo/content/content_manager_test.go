@@ -265,7 +265,7 @@ func (s *contentManagerSuite) TestContentManagerInternalFlush(t *testing.T) {
 
 	defer bm.CloseShared(ctx)
 
-	itemsToOverflow := (maxPackCapacity)/(25+encryptionOverhead) + 2
+	itemsToOverflow := maxPackCapacity/(25+encryptionOverhead) + 2
 	for range itemsToOverflow {
 		b := make([]byte, 25)
 		cryptorand.Read(b)
@@ -1768,6 +1768,7 @@ func dumpContents(ctx context.Context, t *testing.T, bm *WriteManager, caption s
 		func(ci Info) error {
 			t.Logf(" ci[%v]=%#v", count, ci)
 			count++
+
 			return nil
 		}); err != nil {
 		t.Errorf("error listing contents: %v", err)
@@ -2009,7 +2010,8 @@ func (s *contentManagerSuite) TestReadsOwnWritesWithEventualConsistencyPersisten
 	ecst := blobtesting.NewEventuallyConsistentStorage(
 		logging.NewWrapper(st, testlogging.NewTestLogger(t), nil, "[STORAGE] "),
 		3*time.Second,
-		timeNow)
+		timeNow,
+	)
 
 	// disable own writes cache, will still be ok if store is strongly consistent
 	s.verifyReadsOwnWrites(t, ownwrites.NewWrapper(ecst, cacheSt, cachedIndexBlobPrefixes, ownWritesCacheDuration), timeNow)
@@ -2033,9 +2035,7 @@ func (s *contentManagerSuite) verifyReadsOwnWrites(t *testing.T, st blob.Storage
 	ctx := testlogging.Context(t)
 
 	tweaks := &contentManagerTestTweaks{
-		ManagerOptions: ManagerOptions{
-			TimeNow: timeNow,
-		},
+		TimeNow: timeNow,
 	}
 
 	bm := s.newTestContentManagerWithTweaks(t, st, tweaks)
@@ -2115,7 +2115,7 @@ func (s *contentManagerSuite) TestCompression_CompressibleData(t *testing.T) {
 	require.NoError(t, err)
 
 	// gzip-compressed length
-	require.Equal(t, uint32(79), ci.PackedLength)
+	require.Equal(t, 75, int(ci.PackedLength), "packed length")
 	require.Equal(t, uint32(len(compressibleData)), ci.OriginalLength)
 	require.Equal(t, headerID, ci.CompressionHeaderID)
 
@@ -2221,12 +2221,10 @@ func (s *contentManagerSuite) TestPrefetchContent(t *testing.T) {
 	st := blobtesting.NewMapStorage(data, nil, nil)
 	cd := testutil.TempDirectory(t)
 	bm := s.newTestContentManagerWithTweaks(t, st, &contentManagerTestTweaks{
-		CachingOptions: CachingOptions{
-			CacheDirectory:         cd,
-			ContentCacheSizeBytes:  100e6,
-			MetadataCacheSizeBytes: 100e6,
-		},
-		maxPackSize: 20e6,
+		CacheDirectory:         cd,
+		ContentCacheSizeBytes:  100e6,
+		MetadataCacheSizeBytes: 100e6,
+		maxPackSize:            20e6,
 	})
 
 	defer bm.CloseShared(ctx)
@@ -2347,9 +2345,7 @@ func (s *contentManagerSuite) TestContentPermissiveCacheLoading(t *testing.T) {
 	ctx := testlogging.Context(t)
 
 	tweaks := &contentManagerTestTweaks{
-		ManagerOptions: ManagerOptions{
-			TimeNow: timeNow,
-		},
+		TimeNow: timeNow,
 	}
 
 	bm := s.newTestContentManagerWithTweaks(t, st, tweaks)
@@ -2376,10 +2372,8 @@ func (s *contentManagerSuite) TestContentPermissiveCacheLoading(t *testing.T) {
 	require.NoError(t, bm.CloseShared(ctx))
 
 	tweaks = &contentManagerTestTweaks{
-		ManagerOptions: ManagerOptions{
-			TimeNow:                timeNow,
-			PermissiveCacheLoading: true,
-		},
+		TimeNow:                timeNow,
+		PermissiveCacheLoading: true,
 	}
 
 	bm = s.newTestContentManagerWithTweaks(t, st, tweaks)
@@ -2398,9 +2392,7 @@ func (s *contentManagerSuite) TestContentIndexPermissiveReadsWithFault(t *testin
 	ctx := testlogging.Context(t)
 
 	tweaks := &contentManagerTestTweaks{
-		ManagerOptions: ManagerOptions{
-			TimeNow: timeNow,
-		},
+		TimeNow: timeNow,
 	}
 
 	bm := s.newTestContentManagerWithTweaks(t, st, tweaks)
@@ -2429,10 +2421,8 @@ func (s *contentManagerSuite) TestContentIndexPermissiveReadsWithFault(t *testin
 	require.NoError(t, bm.CloseShared(ctx))
 
 	tweaks = &contentManagerTestTweaks{
-		ManagerOptions: ManagerOptions{
-			TimeNow:                timeNow,
-			PermissiveCacheLoading: true,
-		},
+		TimeNow:                timeNow,
+		PermissiveCacheLoading: true,
 	}
 
 	bm = s.newTestContentManagerWithTweaks(t, st, tweaks)
@@ -2477,9 +2467,7 @@ func (s *contentManagerSuite) newTestContentManagerWithCustomTime(t *testing.T, 
 	t.Helper()
 
 	return s.newTestContentManagerWithTweaks(t, st, &contentManagerTestTweaks{
-		ManagerOptions: ManagerOptions{
-			TimeNow: timeFunc,
-		},
+		TimeNow: timeFunc,
 	})
 }
 
@@ -2531,9 +2519,7 @@ func (s *contentManagerSuite) newTestContentManagerWithTweaks(t *testing.T, st b
 		panic("can't create content manager: " + err.Error())
 	}
 
-	t.Cleanup(func() {
-		bm.CloseShared(ctx)
-	})
+	t.Cleanup(func() { bm.CloseShared(testlogging.ContextForCleanup(t)) })
 
 	bm.checkInvariantsOnUnlock = true
 

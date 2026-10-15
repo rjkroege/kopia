@@ -22,7 +22,7 @@ func (c *storageStorjFlags) Setup(svc StorageProviderServices, cmd *kingpin.CmdC
 	commonThrottlingFlags(cmd, &c.options.Limits)
 }
 
-func (c *storageStorjFlags) Connect(ctx context.Context, isCreate bool, formatVersion int) (blob.Storage, error) {
+func (c *storageStorjFlags) Connect(ctx context.Context, isCreate bool, _ int) (blob.Storage, error) {
 	//nolint:wrapcheck
 	return storj.New(ctx, &c.options, isCreate)
 }

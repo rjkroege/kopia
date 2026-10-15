@@ -12,7 +12,6 @@ import (
 	"github.com/kopia/kopia/internal/testlogging"
 	"github.com/kopia/kopia/internal/testutil"
 	"github.com/kopia/kopia/repo/blob"
-	"github.com/kopia/kopia/repo/blob/sharded"
 )
 
 type verifySyncBeforeCloseFile struct {
@@ -104,20 +103,18 @@ func TestPutBlob_SyncBeforeClose(t *testing.T) {
 
 	ctx := testlogging.Context(t)
 	osi := &mockOSForSyncTest{
-		mockOS: mockOS{
-			osInterface: realOS{},
-		},
+		osInterface: realOS{},
 	}
 
 	st, err := New(ctx, &Options{
-		Path:    testutil.TempDirectory(t),
-		Options: sharded.Options{DirectoryShards: []int{1}},
+		Path:            testutil.TempDirectory(t),
+		DirectoryShards: []int{1},
 
 		osInterfaceOverride: osi,
 	}, true)
 	require.NoError(t, err)
 
-	t.Cleanup(func() { _ = st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close(testlogging.ContextForCleanup(t)) })
 
 	err = st.PutBlob(ctx, "blob-sync-ok", gather.FromSlice([]byte("hello")), blob.PutOptions{})
 
@@ -142,13 +139,13 @@ func TestPutBlob_FailsOnSyncError(t *testing.T) {
 	osi := newMockOS()
 
 	st, err := New(ctx, &Options{
-		Path:    dataDir,
-		Options: sharded.Options{DirectoryShards: []int{1}},
+		Path:            dataDir,
+		DirectoryShards: []int{1},
 
 		osInterfaceOverride: osi,
 	}, true)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = st.Close(ctx) })
+	t.Cleanup(func() { _ = st.Close(testlogging.ContextForCleanup(t)) })
 
 	// Test HACK: write a dummy blob to force writing the sharding configuration file, so writing the
 	// config file does not interfere with the test. While this is coupled to the specifics of the
