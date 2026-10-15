@@ -287,6 +287,37 @@ func openDirect(ctx context.Context, configFile string, lc *LocalConfig, passwor
 	return r, nil
 }
 
+// addConfiguredThrottler wraps st with a throttler using the limits from cliOpts,
+// falling back to the limits stored in the connection info. Throttling changes
+// are persisted only when there is a config file; with an in-memory
+// configuration (OpenWithLocalConfig) the limits stay in memory.
+func addConfiguredThrottler(ctx context.Context, st blob.Storage, cliOpts ClientOptions, configFile string) (blob.Storage, throttling.SettableThrottler, error) {
+	limits := throttlingLimitsFromConnectionInfo(ctx, st.ConnectionInfo())
+	if cliOpts.Throttling != nil {
+		limits = *cliOpts.Throttling
+	}
+
+	st, throttler, err := addThrottler(st, limits)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "unable to add throttler")
+	}
+
+	if configFile != "" {
+		throttler.OnUpdate(func(l throttling.Limits) error {
+			lc2, err2 := LoadConfigFromFile(configFile)
+			if err2 != nil {
+				return err2
+			}
+
+			lc2.Throttling = &l
+
+			return lc2.writeToFile(configFile)
+		})
+	}
+
+	return st, throttler, nil
+}
+
 // openWithConfig opens the repository with a given configuration, avoiding the need for a config file.
 //
 //nolint:funlen,gocyclo
@@ -315,29 +346,9 @@ func openWithConfig(ctx context.Context, st blob.Storage, cliOpts ClientOptions,
 		return nil, ferr
 	}
 
-	limits := throttlingLimitsFromConnectionInfo(ctx, st.ConnectionInfo())
-	if cliOpts.Throttling != nil {
-		limits = *cliOpts.Throttling
-	}
-
-	st, throttler, ferr := addThrottler(st, limits)
+	st, throttler, ferr := addConfiguredThrottler(ctx, st, cliOpts, configFile)
 	if ferr != nil {
-		return nil, errors.Wrap(ferr, "unable to add throttler")
-	}
-
-	// persist throttling changes only when there is a config file; with an
-	// in-memory configuration (OpenWithLocalConfig) the limits stay in memory.
-	if configFile != "" {
-		throttler.OnUpdate(func(l throttling.Limits) error {
-			lc2, err2 := LoadConfigFromFile(configFile)
-			if err2 != nil {
-				return err2
-			}
-
-			lc2.Throttling = &l
-
-			return lc2.writeToFile(configFile)
-		})
+		return nil, ferr
 	}
 
 	blobcfg, err := fmgr.BlobCfgBlob(ctx)

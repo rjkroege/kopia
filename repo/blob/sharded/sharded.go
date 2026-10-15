@@ -46,12 +46,12 @@ type Storage struct {
 	parameters *Parameters
 }
 
-// Include this in implementations of Impl to get the default
-// MakeFileName and GetBlobIDFromFileName that's appropriate to a
-// POSIX-style implementation.
+// ImplHelper provides the default MakeFileName and GetBlobIDFromFileName
+// for POSIX-style Impl implementations. Embed it to use them.
 type ImplHelper struct{}
 
-func (_ *ImplHelper) GetBlobIDFromFileName(name string) (blob.ID, bool) {
+// GetBlobIDFromFileName returns the blob ID for a file name ending in CompleteBlobSuffix.
+func (*ImplHelper) GetBlobIDFromFileName(name string) (blob.ID, bool) {
 	if strings.HasSuffix(name, CompleteBlobSuffix) {
 		return blob.ID(name[0 : len(name)-len(CompleteBlobSuffix)]), true
 	}
@@ -59,7 +59,8 @@ func (_ *ImplHelper) GetBlobIDFromFileName(name string) (blob.ID, bool) {
 	return blob.ID(""), false
 }
 
-func (_ *ImplHelper) MakeFileName(blobID blob.ID) string {
+// MakeFileName returns the file name for blobID by appending CompleteBlobSuffix.
+func (*ImplHelper) MakeFileName(blobID blob.ID) string {
 	return string(blobID) + CompleteBlobSuffix
 }
 

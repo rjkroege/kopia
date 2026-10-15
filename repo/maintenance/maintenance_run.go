@@ -181,7 +181,7 @@ func RunExclusive(ctx context.Context, rep repo.DirectRepositoryWriter, mode Mod
 
 	// The local lock is a file next to the config file. A repository opened with
 	// an in-memory config (repo.OpenWithLocalConfig) has no config file and so no
-	// local lock; the repository-level maintenance owner still serialises runs.
+	// local lock; the repository-level maintenance owner still serializes runs.
 	if cfg := rep.ConfigFilename(); cfg != "" {
 		lockFile := cfg + ".mlock"
 		userLog(ctx).Debugf("Acquiring maintenance lock in file %v", lockFile)
