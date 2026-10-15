@@ -1,7 +1,7 @@
 name: Providers - Core
 on:
   push:
-    branches: [ master, test/providers ]
+    branches: [ master, main, test/providers ]
     tags:
       - v*
   schedule:

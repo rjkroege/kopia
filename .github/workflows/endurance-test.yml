@@ -1,7 +1,7 @@
 name: Endurance Test
 on:
   push:
-    branches: [ master, test/endurance ]
+    branches: [ master, main, test/endurance ]
     tags:
       - v*
   schedule:

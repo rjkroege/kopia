@@ -4,7 +4,7 @@ on:
   # https://github.com/ossf/scorecard/blob/main/docs/checks.md#branch-protection
   branch_protection_rule:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
   # To guarantee Maintained check is occasionally updated. See
   # https://github.com/ossf/scorecard/blob/main/docs/checks.md#maintained
   schedule:

@@ -1,11 +1,11 @@
 name: Volume Shadow Copy Test
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main ]
     tags:
       - v*
   pull_request:
-    branches: [ master ]
+    branches: [ master, main ]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

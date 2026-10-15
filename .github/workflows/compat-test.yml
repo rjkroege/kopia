@@ -1,7 +1,7 @@
 name: Compatibility Test
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main ]
     tags:
       - v*
   pull_request: {}

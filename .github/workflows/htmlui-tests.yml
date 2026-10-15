@@ -1,10 +1,10 @@
 name: HTMLUI
 on:
   pull_request:
-    branches: [ master ]
+    branches: [ master, main ]
   push:
     # ci-sandbox is a branch dedicated to testing post-submit code.
-    branches: [ master, artifacts-pr ]
+    branches: [ master, main, artifacts-pr ]
     tags:
       - v*
 env:
