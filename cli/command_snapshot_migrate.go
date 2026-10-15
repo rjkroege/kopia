@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 
@@ -23,6 +24,7 @@ type commandSnapshotMigrate struct {
 	migrateOverwritePolicies bool
 	migrateLatestOnly        bool
 	migrateParallel          uint
+	migrateSkip              []string
 	applyIgnoreRules         bool
 
 	svc advancedAppServices
@@ -38,6 +40,7 @@ func (c *commandSnapshotMigrate) setup(svc advancedAppServices, parent commandPa
 	cmd.Flag("overwrite-policies", "Overwrite policies").BoolVar(&c.migrateOverwritePolicies)
 	cmd.Flag("latest-only", "Only migrate the latest snapshot").BoolVar(&c.migrateLatestOnly)
 	cmd.Flag("parallel", "Number of sources to migrate in parallel").Default("1").UintVar(&c.migrateParallel)
+	cmd.Flag("skip", "ID of a source snapshot manifest to skip (can be repeated)").StringsVar(&c.migrateSkip)
 	cmd.Flag("apply-ignore-rules", "When migrating also apply current ignore rules").BoolVar(&c.applyIgnoreRules)
 	cmd.Action(svc.repositoryWriterActionWithMaintenance(c.run))
 
@@ -258,6 +261,11 @@ func (c *commandSnapshotMigrate) migrateSingleSourceSnapshot(ctx context.Context
 		return nil
 	}
 
+	if slices.Contains(c.migrateSkip, string(m.ID)) {
+		log(ctx).Infof("skipping %v at %v (%v)", s, formatTimestamp(m.StartTime.ToTime()), m.ID)
+		return nil
+	}
+
 	sourceEntry, err := snapshotfs.SnapshotRoot(sourceRepo, m)
 	if err != nil {
 		return errors.Wrap(err, "error getting snapshot root entry")
@@ -278,6 +286,16 @@ func (c *commandSnapshotMigrate) migrateSingleSourceSnapshot(ctx context.Context
 	previous, err := snapshot.FindPreviousManifests(ctx, destRepo, m.Source, &m.StartTime)
 	if err != nil {
 		return errors.Wrap(err, "unable to find previous manifests")
+	}
+
+	resume, err := latestMigrationCheckpoint(ctx, destRepo, m.Source, m.StartTime)
+	if err != nil {
+		return err
+	}
+
+	if resume != nil {
+		log(ctx).Infof("resuming from checkpoint of %v made at %v", s, formatTimestamp(resume.EndTime.ToTime()))
+		previous = append(previous, resume)
 	}
 
 	policyTree, err := policy.TreeForSource(ctx, destRepo, m.Source)
@@ -303,6 +321,33 @@ func (c *commandSnapshotMigrate) migrateSingleSourceSnapshot(ctx context.Context
 	}
 
 	return nil
+}
+
+// latestMigrationCheckpoint returns the most recently written checkpoint for the source that was written
+// by an interrupted migration. Checkpoints carry the wall-clock time of the migration rather
+// than the source snapshot's start time, so snapshot.FindPreviousManifests never returns them.
+// Snapshots are migrated oldest-first, so a checkpoint newer than startTime belongs to the
+// snapshot being migrated or to an earlier one; either way it only provides cache hints.
+func latestMigrationCheckpoint(ctx context.Context, rep repo.Repository, si snapshot.SourceInfo, startTime fs.UTCTimestamp) (*snapshot.Manifest, error) {
+	man, err := snapshot.ListSnapshots(ctx, rep, si)
+	if err != nil {
+		return nil, errors.Wrap(err, "error listing checkpoints")
+	}
+
+	var latest *snapshot.Manifest
+
+	for _, p := range man {
+		if p.IncompleteReason == "" || !p.StartTime.After(startTime) {
+			continue
+		}
+
+		// All checkpoints of one upload share its StartTime; EndTime orders them.
+		if latest == nil || p.EndTime.After(latest.EndTime) {
+			latest = p
+		}
+	}
+
+	return latest, nil
 }
 
 func (c *commandSnapshotMigrate) filterSnapshotsToMigrate(s []*snapshot.Manifest) []*snapshot.Manifest {

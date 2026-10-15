@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kopia/kopia/internal/iocopy"
+	"github.com/kopia/kopia/internal/retry"
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/s3"
 )
@@ -59,12 +60,31 @@ func (s *splitPathStorage) objectName(id blob.ID) string {
 	return s.opt.Prefix + string(id)
 }
 
+// transientCDNError marks CDN failures worth retrying: throttling (429), server
+// errors (5xx) and transport failures. CDNs and the origins behind them shed
+// load with 429s, so a burst of parallel reads must back off, not fail.
+type transientCDNError struct{ error }
+
+func (e transientCDNError) Unwrap() error { return e.error }
+
+func isTransientCDNError(err error) bool {
+	var t transientCDNError
+
+	return errors.As(err, &t)
+}
+
 func (s *splitPathStorage) GetBlob(ctx context.Context, id blob.ID, offset, length int64, output blob.OutputBuffer) error {
 	if !isImmutablePackBlob(id) {
 		//nolint:wrapcheck
 		return s.Storage.GetBlob(ctx, id, offset, length, output)
 	}
 
+	return retry.WithExponentialBackoffNoValue(ctx, fmt.Sprintf("CDN GetBlob(%v,%v,%v)", id, offset, length), func() error {
+		return s.getBlobFromCDN(ctx, id, offset, length, output)
+	}, isTransientCDNError)
+}
+
+func (s *splitPathStorage) getBlobFromCDN(ctx context.Context, id blob.ID, offset, length int64, output blob.OutputBuffer) error {
 	output.Reset()
 
 	if offset < 0 {
@@ -89,7 +109,11 @@ func (s *splitPathStorage) GetBlob(ctx context.Context, id blob.ID, offset, leng
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return errors.Wrapf(err, "GET %v", url)
+		if ctx.Err() != nil {
+			return errors.Wrapf(err, "GET %v", url)
+		}
+
+		return transientCDNError{errors.Wrapf(err, "GET %v", url)}
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -103,6 +127,10 @@ func (s *splitPathStorage) GetBlob(ctx context.Context, id blob.ID, offset, leng
 	case http.StatusOK, http.StatusPartialContent:
 		// proceed
 
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return transientCDNError{errors.Errorf("CDN response %v for %v", resp.Status, url)}
+
 	default:
 		return errors.Errorf("unexpected CDN response %v for %v", resp.Status, url)
 	}
@@ -112,7 +140,7 @@ func (s *splitPathStorage) GetBlob(ctx context.Context, id blob.ID, offset, leng
 	}
 
 	if err := iocopy.JustCopy(output, resp.Body); err != nil {
-		return errors.Wrap(err, "unable to copy data")
+		return transientCDNError{errors.Wrap(err, "unable to copy data")}
 	}
 
 	//nolint:wrapcheck

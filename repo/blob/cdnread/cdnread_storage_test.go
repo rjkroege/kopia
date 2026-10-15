@@ -149,3 +149,45 @@ func TestPutDeleteListGetMetadata_DelegateToBaseStorage(t *testing.T) {
 	_, err = s.GetMetadata(ctx, "put-blob")
 	require.ErrorIs(t, err, blob.ErrBlobNotFound)
 }
+
+func TestGetBlob_RetriesThrottlingAndServerErrors(t *testing.T) {
+	var calls int
+
+	s := newTestStorage(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+
+		switch calls {
+		case 1:
+			w.WriteHeader(http.StatusTooManyRequests)
+		case 2:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			_, _ = w.Write([]byte(testBlobContent))
+		}
+	})
+
+	var output gather.WriteBuffer
+	defer output.Close()
+
+	err := s.GetBlob(testlogging.Context(t), "psome-blob", 0, -1, &output)
+	require.NoError(t, err)
+	require.Equal(t, testBlobContent, string(output.ToByteSlice()))
+	require.Equal(t, 3, calls)
+}
+
+func TestGetBlob_DoesNotRetryNotFound(t *testing.T) {
+	var calls int
+
+	s := newTestStorage(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	var output gather.WriteBuffer
+	defer output.Close()
+
+	err := s.GetBlob(testlogging.Context(t), "pmissing-blob", 0, -1, &output)
+	require.ErrorIs(t, err, blob.ErrBlobNotFound)
+	require.Equal(t, 1, calls)
+}
