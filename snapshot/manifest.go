@@ -128,6 +128,10 @@ type DirEntry struct {
 	GroupID     uint32               `json:"gid,omitempty"`
 	ObjectID    object.ID            `json:"obj"`
 	DirSummary  *fs.DirectorySummary `json:"summ,omitempty"`
+
+	// Attributes holds extended metadata (xattrs, file flags, birth time) when the snapshot
+	// policy enabled capturing it. Clients that predate this field ignore it.
+	Attributes *fs.ExtendedAttributes `json:"attrs,omitempty"`
 }
 
 // Clone returns a clone of the entry.
@@ -139,6 +143,8 @@ func (e *DirEntry) Clone() *DirEntry {
 
 		e2.DirSummary = &s2
 	}
+
+	e2.Attributes = e.Attributes.Clone()
 
 	return &e2
 }
