@@ -33,6 +33,7 @@ type Policy struct {
 	OSSnapshotPolicy          OSSnapshotPolicy          `json:"osSnapshots,omitempty"`
 	LoggingPolicy             LoggingPolicy             `json:"logging,omitempty"`
 	UploadPolicy              UploadPolicy              `json:"upload,omitempty"`
+	ExtendedMetadataPolicy    ExtendedMetadataPolicy    `json:"extendedMetadata,omitempty"`
 	NoParent                  bool                      `json:"noParent,omitempty"`
 }
 
@@ -50,6 +51,7 @@ type Definition struct {
 	OSSnapshotPolicy          OSSnapshotPolicyDefinition          `json:"osSnapshots,omitempty"`
 	LoggingPolicy             LoggingPolicyDefinition             `json:"logging,omitempty"`
 	UploadPolicy              UploadPolicyDefinition              `json:"upload,omitempty"`
+	ExtendedMetadataPolicy    ExtendedMetadataPolicyDefinition    `json:"extendedMetadata,omitempty"`
 }
 
 func (p *Policy) String() string {
@@ -88,6 +90,10 @@ func ValidatePolicy(si snapshot.SourceInfo, pol *Policy) error {
 
 	if err := ValidateUploadPolicy(si, pol.UploadPolicy); err != nil {
 		return errors.Wrap(err, "invalid upload policy")
+	}
+
+	if err := ValidateExtendedMetadataPolicy(pol.ExtendedMetadataPolicy); err != nil {
+		return errors.Wrap(err, "invalid extended metadata policy")
 	}
 
 	return nil
