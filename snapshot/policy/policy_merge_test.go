@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kopia/kopia/fs"
 	"github.com/kopia/kopia/repo/compression"
 	"github.com/kopia/kopia/snapshot"
 	"github.com/kopia/kopia/snapshot/policy"
@@ -158,6 +159,10 @@ func testPolicyMergeSingleField(t *testing.T, fieldName string, typ reflect.Type
 		v0 = reflect.ValueOf("")
 		v1 = reflect.ValueOf("FIXED-2M")
 		v2 = reflect.ValueOf("FIXED-4M")
+	case "*fs.XattrMode":
+		v0 = reflect.ValueOf((*fs.XattrMode)(nil))
+		v1 = reflect.ValueOf(policy.NewXattrMode(fs.XattrsNone))
+		v2 = reflect.ValueOf(policy.NewXattrMode(fs.XattrsAll))
 
 	default:
 		t.Fatalf("unhandled case: %v - %v - please update test", fieldName, typ)

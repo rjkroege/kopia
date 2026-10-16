@@ -124,6 +124,8 @@ func printPolicy(out *textOutput, p *policy.Policy, def *policy.Definition) {
 	rows = append(rows, policyTableRow{})
 	rows = appendUploadPolicyRows(rows, p, def)
 	rows = append(rows, policyTableRow{})
+	rows = appendExtendedMetadataPolicyRows(rows, p, def)
+	rows = append(rows, policyTableRow{})
 	rows = appendCompressionPolicyRows(rows, p, def)
 	rows = append(rows, policyTableRow{})
 	rows = appendMetadataCompressionPolicyRows(rows, p, def)
@@ -508,4 +510,26 @@ func valueOrNotSetOptionalInt64Bytes(p *policy.OptionalInt64) string {
 	}
 
 	return units.BytesString(*p)
+}
+
+func appendExtendedMetadataPolicyRows(rows []policyTableRow, p *policy.Policy, def *policy.Definition) []policyTableRow {
+	mp := p.ExtendedMetadataPolicy
+
+	rows = append(rows,
+		policyTableRow{"Extended metadata:", "", ""},
+		policyTableRow{"  Extended attributes:", mp.AttributeOptions().Xattrs.String(), definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.Xattrs)},
+	)
+
+	if len(mp.XattrExclude) > 0 {
+		rows = append(rows, policyTableRow{"  Excluded extended attributes:", "", definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.XattrExclude)})
+
+		for _, name := range mp.XattrExclude {
+			rows = append(rows, policyTableRow{"    " + name, "", ""})
+		}
+	}
+
+	return append(rows,
+		policyTableRow{"  File flags:", boolToString(mp.FileFlags.OrDefault(false)), definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.FileFlags)},
+		policyTableRow{"  Birth time:", boolToString(mp.BirthTime.OrDefault(false)), definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.BirthTime)},
+	)
 }
