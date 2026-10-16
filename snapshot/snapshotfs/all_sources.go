@@ -53,6 +53,11 @@ func (s *repositoryAllSources) LocalFilesystemPath() string {
 	return ""
 }
 
+// ExtendedAttributes implements fs.Entry.
+func (s *repositoryAllSources) ExtendedAttributes(_ context.Context, _ fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return nil, nil
+}
+
 func (s *repositoryAllSources) SupportsMultipleIterations() bool {
 	return true
 }

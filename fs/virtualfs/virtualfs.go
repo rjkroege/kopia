@@ -63,6 +63,11 @@ func (e *virtualEntry) LocalFilesystemPath() string {
 	return ""
 }
 
+// ExtendedAttributes implements fs.Entry.
+func (e *virtualEntry) ExtendedAttributes(_ context.Context, _ fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return nil, nil
+}
+
 func (e *virtualEntry) Close() {
 }
 
