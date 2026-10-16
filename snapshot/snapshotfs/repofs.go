@@ -83,13 +83,13 @@ func (e *repositoryEntry) DirEntry() *snapshot.DirEntry {
 	return e.metadata
 }
 
-func (e *repositoryEntry) LocalFilesystemPath() string {
-	return ""
+// ExtendedAttributes implements fs.Entry using the metadata stored in the snapshot.
+func (e *repositoryEntry) ExtendedAttributes(_ context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return e.metadata.Attributes.Filtered(opts), nil
 }
 
-// ExtendedAttributes implements fs.Entry.
-func (e *repositoryEntry) ExtendedAttributes(_ context.Context, _ fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
-	return nil, nil
+func (e *repositoryEntry) LocalFilesystemPath() string {
+	return ""
 }
 
 func (e *repositoryEntry) Close() {
