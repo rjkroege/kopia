@@ -135,3 +135,24 @@ var (
 	_ fs.Directory              = &shallowFilesystemDirectory{}
 	_ fs.File                   = &shallowFilesystemFile{}
 )
+
+// ExtendedAttributes implements fs.ExtendedAttributesReader. The entry is not present locally,
+// so its metadata comes from the placeholder, which preserves what the snapshot recorded.
+func (fsf *shallowFilesystemFile) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	de, err := fsf.DirEntryOrNil(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return de.Attributes.Filtered(opts), nil
+}
+
+// ExtendedAttributes implements fs.ExtendedAttributesReader using the placeholder's metadata.
+func (fsd *shallowFilesystemDirectory) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	de, err := fsd.DirEntryOrNil(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return de.Attributes.Filtered(opts), nil
+}
