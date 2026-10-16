@@ -487,3 +487,8 @@ func ReportIgnoredFiles(f IgnoreCallback) Option {
 		}
 	}
 }
+
+// ExtendedAttributes forwards to the wrapped directory, which embedding alone would hide.
+func (d *ignoreDirectory) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, d.Directory, opts) //nolint:wrapcheck
+}

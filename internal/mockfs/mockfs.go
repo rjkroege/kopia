@@ -42,6 +42,7 @@ type entry struct {
 	modTime time.Time
 	owner   fs.OwnerInfo
 	device  fs.DeviceInfo
+	attrs   *fs.ExtendedAttributes
 }
 
 func (e *entry) Name() string {
@@ -81,6 +82,16 @@ func (e *entry) LocalFilesystemPath() string {
 }
 
 func (e *entry) Close() {
+}
+
+// SetExtendedAttributes sets the extended metadata reported by the entry.
+func (e *entry) SetExtendedAttributes(a *fs.ExtendedAttributes) {
+	e.attrs = a
+}
+
+// ExtendedAttributes implements fs.ExtendedAttributesReader.
+func (e *entry) ExtendedAttributes(_ context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return e.attrs.Filtered(opts), nil
 }
 
 // Directory is mock in-memory implementation of fs.Directory.

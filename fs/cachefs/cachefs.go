@@ -80,3 +80,15 @@ var (
 	_ fs.File      = &file{}
 	_ fs.Symlink   = &symlink{}
 )
+
+func (d *directory) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, d.Directory, opts) //nolint:wrapcheck
+}
+
+func (f *file) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, f.File, opts) //nolint:wrapcheck
+}
+
+func (s *symlink) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, s.Symlink, opts) //nolint:wrapcheck
+}
