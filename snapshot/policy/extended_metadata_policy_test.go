@@ -10,11 +10,14 @@ import (
 	"github.com/kopia/kopia/snapshot/policy"
 )
 
-func TestExtendedMetadataPolicy_DisabledByDefault(t *testing.T) {
-	opts := policy.DefaultPolicy.ExtendedMetadataPolicy.AttributeOptions()
-
-	require.True(t, opts.IsZero())
-	require.Equal(t, policy.DefaultXattrExcludes, opts.ExcludeXattrs)
+func TestExtendedMetadataPolicy_EnabledByDefault(t *testing.T) {
+	require.Equal(t, fs.AttributeOptions{
+		Xattrs:        fs.XattrsAll,
+		ExcludeXattrs: policy.DefaultXattrExcludes,
+		BSDFlags:      true,
+		BirthTime:     true,
+		ACLs:          true,
+	}, policy.DefaultPolicy.ExtendedMetadataPolicy.AttributeOptions())
 }
 
 func TestExtendedMetadataPolicy_AttributeOptions(t *testing.T) {
