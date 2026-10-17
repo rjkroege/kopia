@@ -63,6 +63,22 @@ func statListing(ctx context.Context, t *testing.T, root string) string {
 	return mustRunTool(ctx, t, root, "find", ".", "-exec", "stat", "-f", "%N %B %Sf %Sp", "{}", "+")
 }
 
+// aclListing returns "ls -leR ." for root, which includes ACL entries.
+func aclListing(ctx context.Context, t *testing.T, root string) string {
+	t.Helper()
+
+	var lines []string
+
+	// keep names and ACL entries; sizes and times of directories may legitimately differ
+	for line := range strings.SplitSeq(mustRunTool(ctx, t, root, "ls", "-leR", "."), "\n") {
+		if strings.HasPrefix(line, " ") || strings.HasSuffix(line, ":") {
+			lines = append(lines, line)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 // newMacOSMetadataSource creates a tree with Finder metadata, tags, flags and birth times.
 func newMacOSMetadataSource(ctx context.Context, t *testing.T) string {
 	t.Helper()
@@ -90,6 +106,7 @@ func newMacOSMetadataSource(ctx context.Context, t *testing.T) string {
 	setXattrOrSkip(t, tagged, "com.apple.metadata:_kMDItemUserTags", []byte(tags))
 
 	require.NoError(t, unix.Chflags(hidden, unix.UF_HIDDEN))
+	mustRunTool(ctx, t, src, "chmod", "+a", "everyone allow readattr,readextattr", tagged)
 
 	// an mtime earlier than the birth time moves the birth time back; then set a newer mtime
 	mustRunTool(ctx, t, src, "touch", "-t", "200103241200", tagged)
@@ -107,12 +124,15 @@ func TestSnapshotRestore_MacOSMetadataFidelity(t *testing.T) {
 
 	defer e.RunAndExpectSuccess(t, "repo", "disconnect")
 
-	e.RunAndExpectSuccess(t, "policy", "set", "--global", "--xattrs=all", "--file-flags=true", "--birth-time=true")
+	e.RunAndExpectSuccess(t, "policy", "set", "--global", "--xattrs=all", "--file-flags=true", "--birth-time=true", "--acls=true")
 	e.RunAndExpectSuccess(t, "snapshot", "create", src)
 
 	snapID := latestSnapshotID(t, e, src)
 	wantXattrs := xattrListing(ctx, t, src)
 	wantStat := statListing(ctx, t, src)
+	wantACLs := aclListing(ctx, t, src)
+
+	require.Contains(t, wantACLs, "allow readattr")
 
 	require.Contains(t, wantXattrs, "com.apple.FinderInfo")
 	require.Contains(t, wantStat, "hidden")
@@ -123,6 +143,7 @@ func TestSnapshotRestore_MacOSMetadataFidelity(t *testing.T) {
 
 		require.Equal(t, wantXattrs, xattrListing(ctx, t, dst))
 		require.Equal(t, wantStat, statListing(ctx, t, dst))
+		require.Equal(t, wantACLs, aclListing(ctx, t, dst))
 	})
 
 	t.Run("tar", func(t *testing.T) {

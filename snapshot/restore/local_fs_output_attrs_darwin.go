@@ -43,6 +43,22 @@ func setBirthTime(path string, btime fs.UTCTimestamp) error {
 	}, buf, unix.FSOPT_NOFOLLOW), "setattrlist")
 }
 
+// setACL sets the kauth_filesec of path, not following symlinks.
+func setACL(path string, filesec []byte) error {
+	const attrReferenceSize = 8
+
+	// attrreference_t {offset, length} followed by the data; offset is relative to the reference
+	buf := make([]byte, attrReferenceSize+len(filesec))
+	binary.NativeEndian.PutUint32(buf[0:4], attrReferenceSize)
+	binary.NativeEndian.PutUint32(buf[4:8], uint32(len(filesec))) //nolint:gosec
+	copy(buf[attrReferenceSize:], filesec)
+
+	return errors.Wrap(unix.Setattrlist(path, &unix.Attrlist{
+		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
+		Commonattr:  unix.ATTR_CMN_EXTENDED_SECURITY,
+	}, buf, unix.FSOPT_NOFOLLOW), "setattrlist")
+}
+
 // setBSDFlags sets the restorable flags of path to flags, keeping other flags as they are.
 func setBSDFlags(path string, flags uint32, isSymlink bool) error {
 	var st unix.Stat_t

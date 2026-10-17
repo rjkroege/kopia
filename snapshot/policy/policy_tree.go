@@ -89,6 +89,7 @@ var (
 		XattrExclude: DefaultXattrExcludes,
 		FileFlags:    NewOptionalBool(false),
 		BirthTime:    NewOptionalBool(false),
+		ACLs:         NewOptionalBool(false),
 	}
 
 	// DefaultPolicy is a default policy returned by policy tree in absence of other policies.

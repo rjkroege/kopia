@@ -23,6 +23,11 @@ func setBirthTime(string, fs.UTCTimestamp) error {
 	return nil
 }
 
+// setACL is not used: POSIX ACLs are restored as xattrs.
+func setACL(string, []byte) error {
+	return nil
+}
+
 func setBSDFlags(string, uint32, bool) error {
 	return errBSDFlagsNotSupported
 }

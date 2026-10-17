@@ -170,3 +170,36 @@ func TestReadExtendedAttributes(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got, "entries without metadata report nil")
 }
+
+func TestExtendedAttributes_FilteredACLs(t *testing.T) {
+	a := &fs.ExtendedAttributes{
+		Xattrs: map[string][]byte{
+			"system.posix_acl_access": []byte("acl"),
+			"user.a":                  []byte("1"),
+		},
+		ACL: []byte("filesec"),
+	}
+
+	got := a.Filtered(fs.AttributeOptions{ACLs: true})
+	require.True(t, (&fs.ExtendedAttributes{
+		Xattrs: map[string][]byte{"system.posix_acl_access": []byte("acl")},
+		ACL:    []byte("filesec"),
+	}).Equal(got), "ACLs are selected independently of the xattr mode: %+v", got)
+
+	got = a.Filtered(fs.AttributeOptions{Xattrs: fs.XattrsAll})
+	require.True(t, (&fs.ExtendedAttributes{Xattrs: map[string][]byte{"user.a": []byte("1")}}).Equal(got),
+		"ACL xattrs are not captured as plain xattrs: %+v", got)
+}
+
+func TestExtendedAttributes_ACLInCloneAndEqual(t *testing.T) {
+	a := &fs.ExtendedAttributes{ACL: []byte("x")}
+	c := a.Clone()
+
+	require.False(t, a.IsEmpty())
+	require.True(t, a.Equal(c))
+
+	c.ACL[0] = 'y'
+
+	require.False(t, a.Equal(c))
+	require.Equal(t, []byte("x"), a.ACL)
+}
