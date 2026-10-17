@@ -18,10 +18,19 @@ func (e *filesystemEntry) ExtendedAttributes(_ context.Context, opts fs.Attribut
 	path := e.fullPath()
 	a := &fs.ExtendedAttributes{}
 
-	if opts.Xattrs != "" && opts.Xattrs != fs.XattrsNone {
+	if opts.XattrsEnabled() || opts.ACLs {
 		if err := readXattrs(path, opts, a); err != nil {
 			return nil, errors.Wrap(err, "unable to read extended attributes")
 		}
+	}
+
+	if opts.ACLs {
+		acl, err := readACL(path)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to read ACL")
+		}
+
+		a.ACL = acl
 	}
 
 	if opts.BSDFlags || opts.BirthTime {

@@ -29,11 +29,15 @@ type ExtendedAttributes struct {
 
 	// BirthTime is the creation time of the entry, zero if unknown.
 	BirthTime UTCTimestamp `json:"btime,omitempty"`
+
+	// ACL holds the macOS extended security information (kauth_filesec) of the entry.
+	// POSIX ACLs on Linux are stored as system.posix_acl_* entries in Xattrs instead.
+	ACL []byte `json:"acl,omitempty"`
 }
 
 // IsEmpty returns true if a carries no metadata. A nil receiver is empty.
 func (a *ExtendedAttributes) IsEmpty() bool {
-	return a == nil || (len(a.Xattrs) == 0 && len(a.SkippedXattrs) == 0 && a.BSDFlags == 0 && a.BirthTime == 0)
+	return a == nil || (len(a.Xattrs) == 0 && len(a.SkippedXattrs) == 0 && a.BSDFlags == 0 && a.BirthTime == 0 && len(a.ACL) == 0)
 }
 
 // Clone returns a deep copy of a, or nil if a is nil.
@@ -44,6 +48,7 @@ func (a *ExtendedAttributes) Clone() *ExtendedAttributes {
 
 	c := *a
 	c.SkippedXattrs = slices.Clone(a.SkippedXattrs)
+	c.ACL = bytes.Clone(a.ACL)
 
 	if a.Xattrs != nil {
 		c.Xattrs = make(map[string][]byte, len(a.Xattrs))
@@ -63,6 +68,7 @@ func (a *ExtendedAttributes) Equal(b *ExtendedAttributes) bool {
 
 	return a.BSDFlags == b.BSDFlags &&
 		a.BirthTime == b.BirthTime &&
+		bytes.Equal(a.ACL, b.ACL) &&
 		slices.Equal(a.SkippedXattrs, b.SkippedXattrs) &&
 		maps.EqualFunc(a.Xattrs, b.Xattrs, bytes.Equal)
 }
@@ -100,11 +106,36 @@ type AttributeOptions struct {
 
 	// BirthTime enables reading the creation time.
 	BirthTime bool
+
+	// ACLs enables reading access control lists: the macOS extended security information and,
+	// on Linux, the system.posix_acl_* attributes. They are governed by this option alone,
+	// regardless of Xattrs.
+	ACLs bool
 }
 
 // IsZero returns true if o requests no extended metadata.
 func (o AttributeOptions) IsZero() bool {
-	return (o.Xattrs == "" || o.Xattrs == XattrsNone) && !o.BSDFlags && !o.BirthTime
+	return !o.XattrsEnabled() && !o.BSDFlags && !o.BirthTime && !o.ACLs
+}
+
+// XattrsEnabled returns true if o selects extended attributes other than ACLs.
+func (o AttributeOptions) XattrsEnabled() bool {
+	return o.Xattrs != "" && o.Xattrs != XattrsNone
+}
+
+// IncludesXattr returns true if the named attribute is selected by o, ignoring the size limit
+// and platform-specific namespaces.
+func (o AttributeOptions) IncludesXattr(name string) bool {
+	if IsPOSIXACLXattr(name) {
+		return o.ACLs
+	}
+
+	return o.XattrsEnabled() && !o.IsXattrExcluded(name)
+}
+
+// IsPOSIXACLXattr returns true for the extended attributes Linux uses to store POSIX ACLs.
+func IsPOSIXACLXattr(name string) bool {
+	return strings.HasPrefix(name, "system.posix_acl_")
 }
 
 // MaxXattrValueSize returns the effective maximum size of a single attribute value.
@@ -166,8 +197,8 @@ func ReadExtendedAttributes(ctx context.Context, e Entry, opts AttributeOptions)
 }
 
 // Filtered returns a copy of a with only the metadata selected by opts: xattrs are dropped
-// unless opts selects some, excluded names are removed, and values larger than the size limit
-// are moved to SkippedXattrs. Namespace selection (XattrsUser) is platform-specific and is
+// unless opts selects them (see IncludesXattr), and values larger than the size limit are
+// moved to SkippedXattrs. Namespace selection (XattrsUser) is platform-specific and is
 // not applied. Returns nil if nothing remains.
 func (a *ExtendedAttributes) Filtered(opts AttributeOptions) *ExtendedAttributes {
 	if a.IsEmpty() || opts.IsZero() {
@@ -184,29 +215,31 @@ func (a *ExtendedAttributes) Filtered(opts AttributeOptions) *ExtendedAttributes
 		c.BirthTime = a.BirthTime
 	}
 
-	if opts.Xattrs != "" && opts.Xattrs != XattrsNone {
-		for _, name := range a.SkippedXattrs {
-			if !opts.IsXattrExcluded(name) {
-				c.SkippedXattrs = append(c.SkippedXattrs, name)
-			}
-		}
-
-		for name, v := range a.Xattrs {
-			switch {
-			case opts.IsXattrExcluded(name):
-			case len(v) > opts.MaxXattrValueSize():
-				c.SkippedXattrs = append(c.SkippedXattrs, name)
-			default:
-				if c.Xattrs == nil {
-					c.Xattrs = map[string][]byte{}
-				}
-
-				c.Xattrs[name] = bytes.Clone(v)
-			}
-		}
-
-		slices.Sort(c.SkippedXattrs)
+	if opts.ACLs {
+		c.ACL = bytes.Clone(a.ACL)
 	}
+
+	for _, name := range a.SkippedXattrs {
+		if opts.IncludesXattr(name) {
+			c.SkippedXattrs = append(c.SkippedXattrs, name)
+		}
+	}
+
+	for name, v := range a.Xattrs {
+		switch {
+		case !opts.IncludesXattr(name):
+		case len(v) > opts.MaxXattrValueSize():
+			c.SkippedXattrs = append(c.SkippedXattrs, name)
+		default:
+			if c.Xattrs == nil {
+				c.Xattrs = map[string][]byte{}
+			}
+
+			c.Xattrs[name] = bytes.Clone(v)
+		}
+	}
+
+	slices.Sort(c.SkippedXattrs)
 
 	if c.IsEmpty() {
 		return nil

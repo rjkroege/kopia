@@ -537,5 +537,6 @@ func appendExtendedMetadataPolicyRows(rows []policyTableRow, p *policy.Policy, d
 	return append(rows,
 		policyTableRow{"  File flags:", boolToString(mp.FileFlags.OrDefault(false)), definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.FileFlags)},
 		policyTableRow{"  Birth time:", boolToString(mp.BirthTime.OrDefault(false)), definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.BirthTime)},
+		policyTableRow{"  ACLs:", boolToString(mp.ACLs.OrDefault(false)), definitionPointToString(p.Target(), def.ExtendedMetadataPolicy.ACLs)},
 	)
 }

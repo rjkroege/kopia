@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -71,6 +70,7 @@ func (o *FilesystemOutput) restoreAttributeOptions() fs.AttributeOptions {
 	opts := fs.AttributeOptions{
 		BSDFlags:  !o.SkipFileFlags,
 		BirthTime: !o.SkipTimes,
+		ACLs:      !o.SkipPermissions,
 	}
 
 	if !o.SkipXattrs {
@@ -92,12 +92,6 @@ func (o *FilesystemOutput) snapshotAttributes(ctx context.Context, path string, 
 	return a
 }
 
-// isACLXattr returns true for attributes holding POSIX ACLs, which must be set after chmod
-// because chmod rewrites the ACL mask.
-func isACLXattr(name string) bool {
-	return strings.HasPrefix(name, "system.posix_acl_")
-}
-
 // restoreXattrs sets the extended attributes in a that are (or, if acls is false, are not) ACLs.
 func (o *FilesystemOutput) restoreXattrs(ctx context.Context, path string, a *fs.ExtendedAttributes, acls bool) {
 	if a == nil {
@@ -105,7 +99,8 @@ func (o *FilesystemOutput) restoreXattrs(ctx context.Context, path string, a *fs
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(a.Xattrs)) {
-		if isACLXattr(name) != acls {
+		// POSIX ACLs must be set after chmod, which rewrites the ACL mask.
+		if fs.IsPOSIXACLXattr(name) != acls {
 			continue
 		}
 
@@ -117,6 +112,16 @@ func (o *FilesystemOutput) restoreXattrs(ctx context.Context, path string, a *fs
 		if err := setXattr(path, name, a.Xattrs[name]); err != nil {
 			o.warnings.add(ctx, path, errors.Wrapf(err, "setxattr %v", name))
 		}
+	}
+}
+
+func (o *FilesystemOutput) restoreACL(ctx context.Context, path string, a *fs.ExtendedAttributes) {
+	if a == nil || len(a.ACL) == 0 {
+		return
+	}
+
+	if err := setACL(path, a.ACL); err != nil {
+		o.warnings.add(ctx, path, errors.Wrap(err, "ACL"))
 	}
 }
 

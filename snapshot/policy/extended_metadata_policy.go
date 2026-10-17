@@ -22,6 +22,9 @@ type ExtendedMetadataPolicy struct {
 
 	// BirthTime enables capturing file creation times.
 	BirthTime *OptionalBool `json:"birthTime,omitempty"`
+
+	// ACLs enables capturing access control lists (macOS extended security, Linux POSIX ACLs).
+	ACLs *OptionalBool `json:"acls,omitempty"`
 }
 
 // ExtendedMetadataPolicyDefinition specifies which policy definition provided the value of a particular field.
@@ -30,6 +33,7 @@ type ExtendedMetadataPolicyDefinition struct {
 	XattrExclude snapshot.SourceInfo `json:"xattrExclude,omitempty"`
 	FileFlags    snapshot.SourceInfo `json:"fileFlags,omitempty"`
 	BirthTime    snapshot.SourceInfo `json:"birthTime,omitempty"`
+	ACLs         snapshot.SourceInfo `json:"acls,omitempty"`
 }
 
 // Merge applies default values from the provided policy.
@@ -38,6 +42,7 @@ func (p *ExtendedMetadataPolicy) Merge(src ExtendedMetadataPolicy, def *Extended
 	mergeStringsReplace(&p.XattrExclude, src.XattrExclude, &def.XattrExclude, si)
 	mergeOptionalBool(&p.FileFlags, src.FileFlags, &def.FileFlags, si)
 	mergeOptionalBool(&p.BirthTime, src.BirthTime, &def.BirthTime, si)
+	mergeOptionalBool(&p.ACLs, src.ACLs, &def.ACLs, si)
 }
 
 // AttributeOptions returns the options for reading extended metadata under this policy.
@@ -47,6 +52,7 @@ func (p *ExtendedMetadataPolicy) AttributeOptions() fs.AttributeOptions {
 		ExcludeXattrs: p.XattrExclude,
 		BSDFlags:      p.FileFlags.OrDefault(false),
 		BirthTime:     p.BirthTime.OrDefault(false),
+		ACLs:          p.ACLs.OrDefault(false),
 	}
 }
 

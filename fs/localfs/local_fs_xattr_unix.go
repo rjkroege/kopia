@@ -128,9 +128,9 @@ func isNotSupportedError(err error) bool {
 
 // includeXattr returns true if the named attribute should be captured under opts.
 func includeXattr(name string, opts fs.AttributeOptions) bool {
-	if opts.IsXattrExcluded(name) {
+	if !opts.IncludesXattr(name) {
 		return false
 	}
 
-	return opts.Xattrs == fs.XattrsAll || isUserXattr(name)
+	return fs.IsPOSIXACLXattr(name) || opts.Xattrs == fs.XattrsAll || isUserXattr(name)
 }
