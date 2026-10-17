@@ -2,6 +2,8 @@ package policy
 
 import (
 	"strings"
+
+	"github.com/kopia/kopia/fs"
 )
 
 //nolint:gochecknoglobals
@@ -72,6 +74,23 @@ var (
 		ParallelUploadAboveSize: newOptionalInt64(2 << 30), //nolint:mnd
 	}
 
+	// DefaultXattrExcludes lists extended attributes that are not captured by default because
+	// they cannot be restored (com.apple.provenance and com.apple.macl are protected by SIP) or
+	// describe local state that should not travel with the file.
+	DefaultXattrExcludes = []string{
+		"com.apple.lastuseddate#PS",
+		"com.apple.macl",
+		"com.apple.provenance",
+		"com.apple.quarantine",
+	}
+
+	defaultExtendedMetadataPolicy = ExtendedMetadataPolicy{
+		Xattrs:       fs.XattrsNone,
+		XattrExclude: DefaultXattrExcludes,
+		FileFlags:    NewOptionalBool(false),
+		BirthTime:    NewOptionalBool(false),
+	}
+
 	// DefaultPolicy is a default policy returned by policy tree in absence of other policies.
 	DefaultPolicy = &Policy{
 		FilesPolicy:               defaultFilesPolicy,
@@ -84,6 +103,7 @@ var (
 		Actions:                   defaultActionsPolicy,
 		OSSnapshotPolicy:          defaultOSSnapshotPolicy,
 		UploadPolicy:              defaultUploadPolicy,
+		ExtendedMetadataPolicy:    defaultExtendedMetadataPolicy,
 	}
 
 	// DefaultDefinition provides the Definition for the default policy.
