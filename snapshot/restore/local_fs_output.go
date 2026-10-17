@@ -287,7 +287,7 @@ func (o *FilesystemOutput) SymlinkExists(ctx context.Context, relativePath strin
 //
 // The order matters: chown clears some xattrs (security.capability), xattrs
 // must be set while the file is still writable, chmod rewrites the POSIX ACL
-// mask, writing some xattrs (resource forks) updates mtime, and immutable
+// mask (so ACLs follow it), writing some xattrs (resource forks) updates mtime, and immutable
 // flags block any later change.
 func (o *FilesystemOutput) setAttributes(ctx context.Context, targetPath string, e fs.Entry, modclear os.FileMode, extended bool) error {
 	le, err := localfs.NewEntry(targetPath)
@@ -332,6 +332,7 @@ func (o *FilesystemOutput) setAttributes(ctx context.Context, targetPath string,
 	}
 
 	o.restoreXattrs(ctx, targetPath, attrs, true)
+	o.restoreACL(ctx, targetPath, attrs)
 	o.restoreBirthTime(ctx, targetPath, attrs)
 
 	// restoring xattrs or birth time may have changed mtime since le was read

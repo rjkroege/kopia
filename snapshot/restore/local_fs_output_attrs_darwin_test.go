@@ -2,7 +2,9 @@ package restore
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/kopia/kopia/fs"
+	"github.com/kopia/kopia/fs/localfs"
 	"github.com/kopia/kopia/internal/mockfs"
 )
 
@@ -129,4 +132,46 @@ func TestRestore_UnsettableFlagIsAWarning(t *testing.T) {
 	_, o := restoreMock(t, root, nil)
 
 	require.Equal(t, 1, o.warnings.warningCount())
+}
+
+func aclListing(t *testing.T, path string) string {
+	t.Helper()
+
+	out, err := exec.CommandContext(t.Context(), "ls", "-led", path).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	lines := strings.SplitN(string(out), "\n", 2)
+	require.Len(t, lines, 2)
+
+	return lines[1]
+}
+
+func TestRestore_ACL(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "src")
+	require.NoError(t, os.WriteFile(src, []byte("x"), 0o600))
+
+	out, err := exec.CommandContext(t.Context(), "chmod", "+a", "everyone allow readattr", src).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	le, err := localfs.NewEntry(src)
+	require.NoError(t, err)
+
+	attrs, err := fs.ReadExtendedAttributes(t.Context(), le, fs.AttributeOptions{ACLs: true})
+	require.NoError(t, err)
+	require.NotNil(t, attrs)
+
+	for _, skip := range []bool{false, true} {
+		root := mockfs.NewDirectory()
+		root.AddFile("f", []byte("x"), 0o644).SetExtendedAttributes(*attrs)
+
+		target, o := restoreMock(t, root, func(o *FilesystemOutput) { o.SkipPermissions = skip })
+
+		if skip {
+			require.NotContains(t, aclListing(t, filepath.Join(target, "f")), "allow readattr")
+		} else {
+			require.Equal(t, aclListing(t, src), aclListing(t, filepath.Join(target, "f")))
+		}
+
+		require.Zero(t, o.warnings.warningCount())
+	}
 }

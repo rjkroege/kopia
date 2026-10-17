@@ -17,6 +17,7 @@ type policyExtendedMetadataFlags struct {
 	clearXattrExclude  bool
 	fileFlags          string
 	birthTime          string
+	acls               string
 }
 
 func (c *policyExtendedMetadataFlags) setup(cmd *kingpin.CmdClause) {
@@ -27,6 +28,7 @@ func (c *policyExtendedMetadataFlags) setup(cmd *kingpin.CmdClause) {
 	cmd.Flag("clear-xattr-exclude", "Clear the extended attribute exclude list").BoolVar(&c.clearXattrExclude)
 	cmd.Flag("file-flags", "Capture BSD file flags ('true', 'false', 'inherit')").EnumVar(&c.fileFlags, booleanEnumValues...)
 	cmd.Flag("birth-time", "Capture file creation times ('true', 'false', 'inherit')").EnumVar(&c.birthTime, booleanEnumValues...)
+	cmd.Flag("acls", "Capture access control lists ('true', 'false', 'inherit')").EnumVar(&c.acls, booleanEnumValues...)
 }
 
 func (c *policyExtendedMetadataFlags) setExtendedMetadataPolicyFromFlags(ctx context.Context, p *policy.ExtendedMetadataPolicy, changeCount *int) error {
@@ -40,7 +42,11 @@ func (c *policyExtendedMetadataFlags) setExtendedMetadataPolicyFromFlags(ctx con
 		return err
 	}
 
-	return applyPolicyBoolPtr(ctx, "birth time", &p.BirthTime, c.birthTime, changeCount)
+	if err := applyPolicyBoolPtr(ctx, "birth time", &p.BirthTime, c.birthTime, changeCount); err != nil {
+		return err
+	}
+
+	return applyPolicyBoolPtr(ctx, "ACLs", &p.ACLs, c.acls, changeCount)
 }
 
 func applyPolicyXattrMode(ctx context.Context, val **fs.XattrMode, str string, changeCount *int) error {
