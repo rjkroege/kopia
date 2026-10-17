@@ -117,3 +117,15 @@ var (
 	_ fs.File      = &loggingFile{}
 	_ fs.Symlink   = &loggingSymlink{}
 )
+
+func (ld *loggingDirectory) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, ld.Directory, opts) //nolint:wrapcheck
+}
+
+func (lf *loggingFile) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, lf.File, opts) //nolint:wrapcheck
+}
+
+func (ls *loggingSymlink) ExtendedAttributes(ctx context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return fs.ReadExtendedAttributes(ctx, ls.Symlink, opts) //nolint:wrapcheck
+}

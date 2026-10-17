@@ -640,3 +640,25 @@ func verifyDirectoryTree(t *testing.T, dir fs.Directory, expected []string) {
 	diff := pretty.Compare(output, expected)
 	require.Empty(t, diff, "unexpected directory tree, diff(-got,+want)")
 }
+
+func TestIgnoreDirectory_ForwardsExtendedAttributes(t *testing.T) {
+	ctx := t.Context()
+	attrs := &fs.ExtendedAttributes{BirthTime: 12345}
+
+	root := mockfs.NewDirectory()
+	root.SetExtendedAttributes(attrs)
+	root.AddDir("sub", 0o755).SetExtendedAttributes(attrs)
+
+	wrapped := ignorefs.New(root, policy.BuildTree(nil, policy.DefaultPolicy))
+
+	got, err := fs.ReadExtendedAttributes(ctx, wrapped, fs.AttributeOptions{BirthTime: true})
+	require.NoError(t, err)
+	require.True(t, attrs.Equal(got))
+
+	sub, err := wrapped.Child(ctx, "sub")
+	require.NoError(t, err)
+
+	got, err = fs.ReadExtendedAttributes(ctx, sub, fs.AttributeOptions{BirthTime: true})
+	require.NoError(t, err)
+	require.True(t, attrs.Equal(got))
+}
