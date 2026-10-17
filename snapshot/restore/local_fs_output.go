@@ -102,8 +102,14 @@ type FilesystemOutput struct {
 	// SkipPermissions when set to true causes restore to skip restoring permission information.
 	SkipPermissions bool `json:"skipPermissions"`
 
-	// SkipTimes when set to true causes restore to skip restoring modification times.
+	// SkipTimes when set to true causes restore to skip restoring modification and birth times.
 	SkipTimes bool `json:"skipTimes"`
+
+	// SkipXattrs when set to true causes restore to skip restoring extended attributes.
+	SkipXattrs bool `json:"skipXattrs"`
+
+	// SkipFileFlags when set to true causes restore to skip restoring BSD file flags.
+	SkipFileFlags bool `json:"skipFileFlags"`
 
 	// WriteSparseFiles when set to true, write contents as sparse files, minimizing allocated disk space.
 	WriteSparseFiles bool `json:"writeSparseFiles"`
@@ -111,6 +117,9 @@ type FilesystemOutput struct {
 	// copier is the StreamCopier to use for copying the actual bit stream to output.
 	// It is assigned at runtime based on the target filesystem and restore options.
 	copier streamCopier `json:"-"`
+
+	// warnings collects failures to restore extended metadata; set by Init.
+	warnings *attributeWarnings `json:"-"`
 
 	// Indicate whether or not flush files after restore.
 	// Varying from OS, the copier may write the file data to the system cache,
@@ -128,6 +137,7 @@ func (o *FilesystemOutput) Init(ctx context.Context) error {
 	}
 
 	o.copier = c
+	o.warnings = &attributeWarnings{}
 
 	return nil
 }
@@ -149,9 +159,9 @@ func (o *FilesystemOutput) BeginDirectory(ctx context.Context, relativePath stri
 }
 
 // FinishDirectory implements restore.Output interface.
-func (o *FilesystemOutput) FinishDirectory(_ context.Context, relativePath string, e fs.Directory) error {
+func (o *FilesystemOutput) FinishDirectory(ctx context.Context, relativePath string, e fs.Directory) error {
 	path := filepath.Join(o.TargetPath, filepath.FromSlash(relativePath))
-	if err := o.setAttributes(path, e, os.FileMode(0)); err != nil {
+	if err := o.setAttributes(ctx, path, e, os.FileMode(0), true); err != nil {
 		return errors.Wrap(err, "error setting attributes")
 	}
 
@@ -166,7 +176,9 @@ func (o *FilesystemOutput) WriteDirEntry(ctx context.Context, relativePath strin
 }
 
 // Close implements restore.Output interface.
-func (o *FilesystemOutput) Close(_ context.Context) error {
+func (o *FilesystemOutput) Close(ctx context.Context) error {
+	o.warnings.report(ctx)
+
 	return nil
 }
 
@@ -179,7 +191,7 @@ func (o *FilesystemOutput) WriteFile(ctx context.Context, relativePath string, f
 		return errors.Wrap(err, "error creating file")
 	}
 
-	if err := o.setAttributes(path, f, os.FileMode(0)); err != nil {
+	if err := o.setAttributes(ctx, path, f, os.FileMode(0), true); err != nil {
 		return errors.Wrap(err, "error setting attributes")
 	}
 
@@ -244,7 +256,7 @@ func (o *FilesystemOutput) CreateSymlink(ctx context.Context, relativePath strin
 		return errors.Wrap(err, "error creating symlink")
 	}
 
-	if err := o.setAttributes(path, e, os.FileMode(0)); err != nil {
+	if err := o.setAttributes(ctx, path, e, os.FileMode(0), true); err != nil {
 		return errors.Wrap(err, "error setting attributes")
 	}
 
@@ -269,8 +281,15 @@ func (o *FilesystemOutput) SymlinkExists(ctx context.Context, relativePath strin
 
 // setAttributes sets permission, modification time and user/group ids
 // on targetPath. modclear will clear the specified FileMod bits. Pass 0
-// to not clear any.
-func (o *FilesystemOutput) setAttributes(targetPath string, e fs.Entry, modclear os.FileMode) error {
+// to not clear any. When extended is true, extended metadata stored in the
+// snapshot (xattrs, birth time, file flags) is applied as well; failures to
+// apply it are collected as warnings rather than returned.
+//
+// The order matters: chown clears some xattrs (security.capability), xattrs
+// must be set while the file is still writable, chmod rewrites the POSIX ACL
+// mask, writing some xattrs (resource forks) updates mtime, and immutable
+// flags block any later change.
+func (o *FilesystemOutput) setAttributes(ctx context.Context, targetPath string, e fs.Entry, modclear os.FileMode, extended bool) error {
 	le, err := localfs.NewEntry(targetPath)
 	if err != nil {
 		return errors.Wrap(err, "could not create local FS entry for "+targetPath)
@@ -289,6 +308,11 @@ func (o *FilesystemOutput) setAttributes(targetPath string, e fs.Entry, modclear
 		modclear = os.FileMode(0)
 	}
 
+	var attrs *fs.ExtendedAttributes
+	if extended {
+		attrs = o.snapshotAttributes(ctx, targetPath, e)
+	}
+
 	// Set owner user and group from e
 	// On Windows Chown is not supported. fs.OwnerInfo collected on Windows will always
 	// be zero-value for UID and GID, so the Chown operation is not performed.
@@ -298,6 +322,8 @@ func (o *FilesystemOutput) setAttributes(targetPath string, e fs.Entry, modclear
 		}
 	}
 
+	o.restoreXattrs(ctx, targetPath, attrs, false)
+
 	// Set file permissions from e
 	if o.shouldUpdatePermissions(le, e, modclear) {
 		if err = o.maybeIgnorePermissionError(osChmod(targetPath, (e.Mode()&fs.ModBits)&^modclear)); err != nil {
@@ -305,11 +331,17 @@ func (o *FilesystemOutput) setAttributes(targetPath string, e fs.Entry, modclear
 		}
 	}
 
-	if o.shouldUpdateTimes(le, e) {
+	o.restoreXattrs(ctx, targetPath, attrs, true)
+	o.restoreBirthTime(ctx, targetPath, attrs)
+
+	// restoring xattrs or birth time may have changed mtime since le was read
+	if o.shouldUpdateTimes(le, e) || (attrs != nil && !o.SkipTimes) {
 		if err = o.maybeIgnorePermissionError(osChtimes(targetPath, e.ModTime(), e.ModTime())); err != nil {
 			return errors.Wrap(err, "could not change mod time on "+targetPath)
 		}
 	}
+
+	o.restoreBSDFlags(ctx, targetPath, attrs, isSymlink(e))
 
 	return nil
 }

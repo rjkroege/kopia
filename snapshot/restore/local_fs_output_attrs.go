@@ -1,0 +1,141 @@
+package restore
+
+import (
+	"context"
+	"maps"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/pkg/errors"
+
+	"github.com/kopia/kopia/fs"
+)
+
+// maxAttributeWarningExamples limits how many distinct failures are listed in the summary.
+const maxAttributeWarningExamples = 5
+
+// attributeWarnings collects failures to restore extended metadata. They do not fail the
+// restore, since the target filesystem may not support them, and are summarized on Close.
+type attributeWarnings struct {
+	mu       sync.Mutex
+	count    int
+	examples map[string]string // error message -> example path
+}
+
+func (w *attributeWarnings) add(ctx context.Context, path string, err error) {
+	log(ctx).Debugf("unable to restore extended metadata of %v: %v", path, err)
+
+	if w == nil {
+		log(ctx).Warnf("unable to restore extended metadata of %v: %v", path, err)
+		return
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.count++
+
+	if w.examples == nil {
+		w.examples = map[string]string{}
+	}
+
+	if len(w.examples) < maxAttributeWarningExamples {
+		if _, ok := w.examples[err.Error()]; !ok {
+			w.examples[err.Error()] = path
+		}
+	}
+}
+
+func (w *attributeWarnings) report(ctx context.Context) {
+	if w == nil {
+		return
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.count == 0 {
+		return
+	}
+
+	log(ctx).Warnf("%v extended attributes, file flags or birth times could not be restored", w.count)
+
+	for _, msg := range slices.Sorted(maps.Keys(w.examples)) {
+		log(ctx).Warnf("  %v (for example %v)", msg, w.examples[msg])
+	}
+}
+
+// restoreAttributeOptions selects the extended metadata that restore applies.
+func (o *FilesystemOutput) restoreAttributeOptions() fs.AttributeOptions {
+	opts := fs.AttributeOptions{
+		BSDFlags:  !o.SkipFileFlags,
+		BirthTime: !o.SkipTimes,
+	}
+
+	if !o.SkipXattrs {
+		opts.Xattrs = fs.XattrsAll
+		opts.MaxXattrSize = int(^uint(0) >> 1)
+	}
+
+	return opts
+}
+
+// snapshotAttributes returns the extended metadata of e to restore, or nil.
+func (o *FilesystemOutput) snapshotAttributes(ctx context.Context, path string, e fs.Entry) *fs.ExtendedAttributes {
+	a, err := fs.ReadExtendedAttributes(ctx, e, o.restoreAttributeOptions())
+	if err != nil {
+		o.warnings.add(ctx, path, err)
+		return nil
+	}
+
+	return a
+}
+
+// isACLXattr returns true for attributes holding POSIX ACLs, which must be set after chmod
+// because chmod rewrites the ACL mask.
+func isACLXattr(name string) bool {
+	return strings.HasPrefix(name, "system.posix_acl_")
+}
+
+// restoreXattrs sets the extended attributes in a that are (or, if acls is false, are not) ACLs.
+func (o *FilesystemOutput) restoreXattrs(ctx context.Context, path string, a *fs.ExtendedAttributes, acls bool) {
+	if a == nil {
+		return
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(a.Xattrs)) {
+		if isACLXattr(name) != acls {
+			continue
+		}
+
+		if isProtectedXattr(name) {
+			log(ctx).Debugf("not restoring protected extended attribute %v of %v", name, path)
+			continue
+		}
+
+		if err := setXattr(path, name, a.Xattrs[name]); err != nil {
+			o.warnings.add(ctx, path, errors.Wrapf(err, "setxattr %v", name))
+		}
+	}
+}
+
+func (o *FilesystemOutput) restoreBirthTime(ctx context.Context, path string, a *fs.ExtendedAttributes) {
+	if a == nil || a.BirthTime == 0 {
+		return
+	}
+
+	if err := setBirthTime(path, a.BirthTime); err != nil {
+		o.warnings.add(ctx, path, errors.Wrap(err, "birth time"))
+	}
+}
+
+func (o *FilesystemOutput) restoreBSDFlags(ctx context.Context, path string, a *fs.ExtendedAttributes, isSymlink bool) {
+	if a == nil || a.BSDFlags == 0 {
+		return
+	}
+
+	if err := setBSDFlags(path, a.BSDFlags, isSymlink); err != nil {
+		o.warnings.add(ctx, path, errors.Wrap(err, "file flags"))
+	}
+}

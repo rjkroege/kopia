@@ -120,6 +120,8 @@ type commandRestore struct {
 	restoreIgnorePermissionErrors bool
 	restoreWriteFilesAtomically   bool
 	restoreSkipTimes              bool
+	restoreSkipXattrs             bool
+	restoreSkipFileFlags          bool
 	restoreSkipOwners             bool
 	restoreSkipPermissions        bool
 	restoreIncremental            bool
@@ -151,6 +153,8 @@ func (c *commandRestore) setup(svc appServices, parent commandParent) {
 	cmd.Flag("skip-owners", "Skip owners during restore").BoolVar(&c.restoreSkipOwners)
 	cmd.Flag("skip-permissions", "Skip permissions during restore").BoolVar(&c.restoreSkipPermissions)
 	cmd.Flag("skip-times", "Skip times during restore").BoolVar(&c.restoreSkipTimes)
+	cmd.Flag("skip-xattrs", "Skip extended attributes during restore").BoolVar(&c.restoreSkipXattrs)
+	cmd.Flag("skip-file-flags", "Skip BSD file flags during restore").BoolVar(&c.restoreSkipFileFlags)
 	cmd.Flag("ignore-permission-errors", "Ignore permission errors").Default(trueStr).BoolVar(&c.restoreIgnorePermissionErrors)
 	cmd.Flag("write-files-atomically", "Write files atomically to disk, ensuring they are either fully committed, or not written at all, preventing partially written files").Default(falseStr).BoolVar(&c.restoreWriteFilesAtomically)
 	cmd.Flag("ignore-errors", "Ignore all errors").BoolVar(&c.restoreIgnoreErrors)
@@ -270,6 +274,8 @@ func (c *commandRestore) restoreOutput(ctx context.Context, rep repo.Repository)
 			SkipOwners:             c.restoreSkipOwners,
 			SkipPermissions:        c.restoreSkipPermissions,
 			SkipTimes:              c.restoreSkipTimes,
+			SkipXattrs:             c.restoreSkipXattrs,
+			SkipFileFlags:          c.restoreSkipFileFlags,
 			WriteSparseFiles:       c.restoreWriteSparseFiles,
 			FlushFiles:             c.flushFiles,
 		}

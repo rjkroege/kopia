@@ -44,7 +44,7 @@ func (o *ShallowFilesystemOutput) WriteDirEntry(ctx context.Context, relativePat
 		return errors.Wrap(err, "shallow WriteDirEntry")
 	}
 
-	return o.setAttributes(placeholderpath, e, readonlyfilemode)
+	return o.setAttributes(ctx, placeholderpath, e, readonlyfilemode, false)
 }
 
 // WriteFile implements restore.Output interface.
@@ -68,7 +68,7 @@ func (o *ShallowFilesystemOutput) WriteFile(ctx context.Context, relativePath st
 		return errors.Wrap(err, "shallow WriteFile")
 	}
 
-	return o.setAttributes(placeholderpath, f, readonlyfilemode)
+	return o.setAttributes(ctx, placeholderpath, f, readonlyfilemode, false)
 }
 
 const readonlyfilemode = 0o222
