@@ -84,12 +84,14 @@ var (
 		"com.apple.quarantine",
 	}
 
+	// defaultExtendedMetadataPolicy captures all extended metadata. This differs from upstream
+	// kopia, which disables it by default.
 	defaultExtendedMetadataPolicy = ExtendedMetadataPolicy{
-		Xattrs:       fs.XattrsNone,
+		Xattrs:       fs.XattrsAll,
 		XattrExclude: DefaultXattrExcludes,
-		FileFlags:    NewOptionalBool(false),
-		BirthTime:    NewOptionalBool(false),
-		ACLs:         NewOptionalBool(false),
+		FileFlags:    NewOptionalBool(true),
+		BirthTime:    NewOptionalBool(true),
+		ACLs:         NewOptionalBool(true),
 	}
 
 	// DefaultPolicy is a default policy returned by policy tree in absence of other policies.

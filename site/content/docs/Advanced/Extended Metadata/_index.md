@@ -17,19 +17,20 @@ modification time. On macOS and Linux, Kopia can also capture:
 * **Birth (creation) time**.
 * **Access control lists**: macOS ACLs, and POSIX ACLs on Linux.
 
-Capturing them is disabled by default. Enable it with a policy, for example for all snapshots:
+This build captures all of them by default (upstream Kopia disables this by default). Turn it
+off with a policy, for example for all snapshots:
 
 ```shell
-kopia policy set --global --xattrs=all --file-flags=true --birth-time=true --acls=true
+kopia policy set --global --xattrs=none --file-flags=false --birth-time=false --acls=false
 ```
 
 | Policy option | Values | Default |
 | --- | --- | --- |
-| `--xattrs` | `none`, `user` (the `user.` namespace on Linux; all attributes on macOS), `all` | `none` |
+| `--xattrs` | `none`, `user` (the `user.` namespace on Linux; all attributes on macOS), `all` | `all` |
 | `--add-xattr-exclude`, `--remove-xattr-exclude`, `--clear-xattr-exclude` | attribute names; a trailing `*` matches a prefix | `com.apple.lastuseddate#PS`, `com.apple.macl`, `com.apple.provenance`, `com.apple.quarantine` |
-| `--file-flags` | `true`, `false` | `false` |
-| `--birth-time` | `true`, `false` | `false` |
-| `--acls` | `true`, `false` | `false` |
+| `--file-flags` | `true`, `false` | `true` |
+| `--birth-time` | `true`, `false` | `true` |
+| `--acls` | `true`, `false` | `true` |
 
 A non-empty exclude list replaces the one inherited from the parent policy.
 

@@ -8,7 +8,7 @@ import (
 )
 
 // ExtendedMetadataPolicy describes which metadata beyond contents, permissions, ownership and
-// modification time is captured in snapshots. Capturing it is disabled by default.
+// modification time is captured in snapshots. The default policy captures all of it.
 type ExtendedMetadataPolicy struct {
 	// Xattrs selects which extended attributes are captured; empty means inherit.
 	Xattrs fs.XattrMode `json:"xattrs,omitempty"`
