@@ -62,12 +62,28 @@ func testAttrs(v string) fs.ExtendedAttributes {
 	}
 }
 
-func TestUpload_ExtendedAttributesDisabledByDefault(t *testing.T) {
+func TestUpload_ExtendedAttributesCapturedByDefault(t *testing.T) {
 	ctx := testlogging.Context(t)
 	th := newUploadTestHarness(ctx, t)
 	t.Cleanup(th.cleanup)
 
-	tree := policy.BuildTree(nil, policy.DefaultPolicy)
+	th.sourceDir.Subdir("d1").SetExtendedAttributes(testAttrs("a"))
+
+	man, err := NewUploader(th.repo).Upload(ctx, th.sourceDir, policy.BuildTree(nil, policy.DefaultPolicy), snapshot.SourceInfo{})
+	require.NoError(t, err)
+
+	got := storedAttributes(ctx, t, th, man, "d1")
+	require.NotNil(t, got)
+	require.Equal(t, []byte("a"), got.Xattrs["user.v"])
+	require.NotContains(t, got.Xattrs, "com.apple.quarantine", "default excludes apply")
+}
+
+func TestUpload_ExtendedAttributesDisabledByPolicy(t *testing.T) {
+	ctx := testlogging.Context(t)
+	th := newUploadTestHarness(ctx, t)
+	t.Cleanup(th.cleanup)
+
+	tree := extendedMetadataPolicyTree(policy.ExtendedMetadataPolicy{Xattrs: policy.NewXattrMode(fs.XattrsNone)})
 
 	before, err := NewUploader(th.repo).Upload(ctx, th.sourceDir, tree, snapshot.SourceInfo{})
 	require.NoError(t, err)
