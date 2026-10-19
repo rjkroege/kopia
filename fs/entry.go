@@ -22,6 +22,10 @@ type Entry interface {
 	Device() DeviceInfo
 	LocalFilesystemPath() string // returns full local filesystem path or "" if not a local filesystem
 	Close()                      // closes or recycles any resources associated with the entry, must be idempotent
+
+	// ExtendedAttributes returns the extended metadata selected by opts, or nil if there is none.
+	// Unlike the other methods it may read from the underlying filesystem.
+	ExtendedAttributes(ctx context.Context, opts AttributeOptions) (*ExtendedAttributes, error)
 }
 
 // OwnerInfo describes owner of a filesystem entry.

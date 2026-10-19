@@ -80,6 +80,11 @@ func (e *filesystemEntry) LocalFilesystemPath() string {
 	return e.fullPath()
 }
 
+// ExtendedAttributes implements fs.Entry.
+func (e *filesystemEntry) ExtendedAttributes(_ context.Context, _ fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return nil, nil
+}
+
 type filesystemDirectory struct {
 	filesystemEntry
 }
