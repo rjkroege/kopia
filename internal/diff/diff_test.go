@@ -48,6 +48,10 @@ func (f *testBaseEntry) Owner() fs.OwnerInfo         { return f.owner }
 func (f *testBaseEntry) Device() fs.DeviceInfo       { return fs.DeviceInfo{Dev: 1} }
 func (f *testBaseEntry) ObjectID() object.ID         { return f.oid }
 
+func (f *testBaseEntry) ExtendedAttributes(context.Context, fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return nil, nil
+}
+
 func (f *testBaseEntry) Mode() os.FileMode {
 	if f.mode == 0 {
 		return 0o644
