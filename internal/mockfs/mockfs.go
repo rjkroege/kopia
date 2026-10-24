@@ -36,13 +36,14 @@ func (c readerSeekerCloser) Close() error {
 }
 
 type entry struct {
-	name    string
-	mode    os.FileMode
-	size    int64
-	modTime time.Time
-	owner   fs.OwnerInfo
-	device  fs.DeviceInfo
-	attrs   fs.ExtendedAttributes
+	name     string
+	mode     os.FileMode
+	size     int64
+	modTime  time.Time
+	owner    fs.OwnerInfo
+	device   fs.DeviceInfo
+	attrs    fs.ExtendedAttributes
+	attrsErr error
 }
 
 func (e *entry) Name() string {
@@ -89,8 +90,17 @@ func (e *entry) SetExtendedAttributes(a fs.ExtendedAttributes) {
 	e.attrs = a
 }
 
+// FailExtendedAttributes causes reading extended metadata of the entry to fail with err.
+func (e *entry) FailExtendedAttributes(err error) {
+	e.attrsErr = err
+}
+
 // ExtendedAttributes implements fs.Entry.
 func (e *entry) ExtendedAttributes(_ context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	if e.attrsErr != nil {
+		return nil, e.attrsErr
+	}
+
 	return e.attrs.Filtered(opts), nil
 }
 
