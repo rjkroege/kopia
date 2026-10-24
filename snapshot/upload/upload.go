@@ -863,6 +863,8 @@ func (u *Uploader) processSingle(
 				return errors.Wrap(err, "unable to create dir entry")
 			}
 
+			u.addExtendedAttributes(ctx, entry, cachedDirEntry, policyTree.Child(entry.Name()).EffectivePolicy(), entryRelativePath, parentDirBuilder)
+
 			return u.processEntryUploadResult(ctx, cachedDirEntry, nil, entryRelativePath, parentDirBuilder,
 				false,
 				u.OverrideEntryLogDetail.OrDefault(policyTree.EffectivePolicy().LoggingPolicy.Entries.CacheHit.OrDefault(policy.LogDetailNone)),
@@ -899,6 +901,7 @@ func (u *Uploader) processSingle(
 				return errors.Wrapf(err, "unable to process directory %q", entry.Name())
 			}
 		} else {
+			u.addExtendedAttributes(ctx, entry, de, childTree.EffectivePolicy(), entryRelativePath, parentDirBuilder)
 			parentDirBuilder.AddEntry(de)
 		}
 
@@ -906,7 +909,11 @@ func (u *Uploader) processSingle(
 
 	case fs.Symlink:
 		compressor := policyTree.Child(entry.Name()).EffectivePolicy().MetadataCompressionPolicy.MetadataCompressor()
+
 		de, err := u.uploadSymlinkInternal(ctx, entryRelativePath, entry, compressor)
+		if err == nil {
+			u.addExtendedAttributes(ctx, entry, de, policyTree.Child(entry.Name()).EffectivePolicy(), entryRelativePath, parentDirBuilder)
+		}
 
 		return u.processEntryUploadResult(ctx, de, err, entryRelativePath, parentDirBuilder,
 			policyTree.EffectivePolicy().ErrorHandlingPolicy.IgnoreFileErrors.OrDefault(false),
@@ -917,6 +924,9 @@ func (u *Uploader) processSingle(
 		atomic.AddInt32(&u.stats.NonCachedFiles, 1)
 
 		de, err := u.uploadFileInternal(ctx, parentCheckpointRegistry, entryRelativePath, entry, policyTree.Child(entry.Name()).EffectivePolicy())
+		if err == nil {
+			u.addExtendedAttributes(ctx, entry, de, policyTree.Child(entry.Name()).EffectivePolicy(), entryRelativePath, parentDirBuilder)
+		}
 
 		return u.processEntryUploadResult(ctx, de, err, entryRelativePath, parentDirBuilder,
 			policyTree.EffectivePolicy().ErrorHandlingPolicy.IgnoreFileErrors.OrDefault(false),
@@ -962,6 +972,9 @@ func (u *Uploader) processSingle(
 		atomic.AddInt32(&u.stats.NonCachedFiles, 1)
 
 		de, err := u.uploadStreamingFileInternal(ctx, entryRelativePath, entry, policyTree.Child(entry.Name()).EffectivePolicy())
+		if err == nil {
+			u.addExtendedAttributes(ctx, entry, de, policyTree.Child(entry.Name()).EffectivePolicy(), entryRelativePath, parentDirBuilder)
+		}
 
 		return u.processEntryUploadResult(ctx, de, err, entryRelativePath, parentDirBuilder,
 			policyTree.EffectivePolicy().ErrorHandlingPolicy.IgnoreFileErrors.OrDefault(false),
@@ -971,6 +984,26 @@ func (u *Uploader) processSingle(
 	default:
 		return errors.Errorf("unexpected entry type: %T %v", entry, entry.Mode())
 	}
+}
+
+// addExtendedAttributes sets de.Attributes to the extended metadata of entry selected by pol.
+// A failure to read the metadata is reported like a file error, subject to the error handling
+// policy, but the entry is kept without it so that a metadata problem never drops file contents.
+func (u *Uploader) addExtendedAttributes(
+	ctx context.Context,
+	entry fs.Entry,
+	de *snapshot.DirEntry,
+	pol *policy.Policy,
+	entryRelativePath string,
+	parentDirBuilder *snapshotfs.DirManifestBuilder,
+) {
+	attrs, err := fs.ReadExtendedAttributes(ctx, entry, pol.ExtendedMetadataPolicy.AttributeOptions())
+	if err != nil {
+		u.reportErrorAndMaybeCancel(err, pol.ErrorHandlingPolicy.IgnoreFileErrors.OrDefault(false), parentDirBuilder, entryRelativePath)
+		return
+	}
+
+	de.Attributes = attrs
 }
 
 func (u *Uploader) processEntryUploadResult(
@@ -1331,6 +1364,10 @@ func (u *Uploader) Upload(
 	if err != nil {
 		return nil, rootCauseError(err)
 	}
+
+	// errors reading the root's attributes are counted in the stats; the root has no parent
+	// directory manifest to record them in.
+	u.addExtendedAttributes(ctx, source, s.RootEntry, policyTree.EffectivePolicy(), ".", &snapshotfs.DirManifestBuilder{})
 
 	s.IncompleteReason = u.incompleteReason()
 	s.EndTime = fs.UTCTimestampFromTime(u.repo.Time())
