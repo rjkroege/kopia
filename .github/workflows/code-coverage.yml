@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: read
       code-quality: write
+      pull-requests: write # fork only: coverage summary comment
     steps:
     - name: Check out repository
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,12 +32,38 @@ jobs:
     - name: Test Coverage
       run: make coverage-cobertura
     - name: Upload coverage report
-      if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+      # fork only: GitHub Code Quality is unavailable to personal-account repos
+      if: github.repository == 'kopia/kopia' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'))
       uses: actions/upload-code-coverage@2b21a77928be8d5168c2b9581a67f2adbebacc52 # v1.4.4
       with:
         file: coverage.xml
         language: Go
         label: code-coverage/go-test
+    # fork only: report coverage in the job summary and a sticky PR comment instead
+    - name: Summarize coverage (fork)
+      if: github.repository != 'kopia/kopia'
+      run: |
+        python3 -I .github/scripts/coverage-summary.py coverage.xml > coverage-summary.md
+        cat coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
+    - name: Comment coverage on PR (fork)
+      if: github.repository != 'kopia/kopia' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+          --jq '.[] | select(.body | startswith("<!-- fork-coverage-summary -->")) | .id' | head -1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@coverage-summary.md > /dev/null
+        else
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@coverage-summary.md > /dev/null
+        fi
+    - name: Upload coverage.xml (fork)
+      if: github.repository != 'kopia/kopia'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: coverage
+        path: coverage.xml
     - name: Upload Logs
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
