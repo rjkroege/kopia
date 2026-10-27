@@ -5,6 +5,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -24,11 +25,15 @@ type ExtendedAttributes struct {
 
 	// BirthTime is the creation time of the entry, zero if unknown.
 	BirthTime UTCTimestamp `json:"btime,omitempty"`
+
+	// ACL holds the macOS extended security information (kauth_filesec) of the entry.
+	// POSIX ACLs on Linux are stored as system.posix_acl_* entries in Xattrs instead.
+	ACL []byte `json:"acl,omitempty"`
 }
 
 // IsEmpty returns true if a carries no metadata. A nil receiver is empty.
 func (a *ExtendedAttributes) IsEmpty() bool {
-	return a == nil || (len(a.Xattrs) == 0 && a.BSDFlags == 0 && a.BirthTime == 0)
+	return a == nil || (len(a.Xattrs) == 0 && a.BSDFlags == 0 && a.BirthTime == 0 && len(a.ACL) == 0)
 }
 
 // Clone returns a deep copy of a, or nil if a is nil.
@@ -38,6 +43,7 @@ func (a *ExtendedAttributes) Clone() *ExtendedAttributes {
 	}
 
 	c := *a
+	c.ACL = bytes.Clone(a.ACL)
 
 	if a.Xattrs != nil {
 		c.Xattrs = make(map[string][]byte, len(a.Xattrs))
@@ -49,6 +55,15 @@ func (a *ExtendedAttributes) Clone() *ExtendedAttributes {
 	return &c
 }
 
+// XattrNames returns the names of the extended attributes in a, sorted.
+func (a *ExtendedAttributes) XattrNames() []string {
+	if a == nil {
+		return nil
+	}
+
+	return slices.Sorted(maps.Keys(a.Xattrs))
+}
+
 // Equal returns true if a and b carry the same metadata. Nil and empty values are equal.
 func (a *ExtendedAttributes) Equal(b *ExtendedAttributes) bool {
 	if a.IsEmpty() || b.IsEmpty() {
@@ -57,6 +72,7 @@ func (a *ExtendedAttributes) Equal(b *ExtendedAttributes) bool {
 
 	return a.BSDFlags == b.BSDFlags &&
 		a.BirthTime == b.BirthTime &&
+		bytes.Equal(a.ACL, b.ACL) &&
 		maps.EqualFunc(a.Xattrs, b.Xattrs, bytes.Equal)
 }
 
@@ -130,11 +146,31 @@ type AttributeOptions struct {
 
 	// BirthTime enables reading the creation time.
 	BirthTime bool
+
+	// ACLs enables reading access control lists: the macOS extended security information and,
+	// on Linux, the system.posix_acl_* attributes. They are governed by this option alone,
+	// regardless of Xattrs.
+	ACLs bool
 }
 
 // IsZero returns true if o requests no extended metadata.
 func (o AttributeOptions) IsZero() bool {
-	return o.Xattrs == XattrsNone && !o.BSDFlags && !o.BirthTime
+	return o.Xattrs == XattrsNone && !o.BSDFlags && !o.BirthTime && !o.ACLs
+}
+
+// IncludesXattr returns true if the named attribute is selected by o, ignoring the size limit
+// and platform-specific namespaces.
+func (o AttributeOptions) IncludesXattr(name string) bool {
+	if IsPOSIXACLXattr(name) {
+		return o.ACLs
+	}
+
+	return o.Xattrs != XattrsNone && !o.IsXattrExcluded(name)
+}
+
+// IsPOSIXACLXattr returns true for the extended attributes Linux uses to store POSIX ACLs.
+func IsPOSIXACLXattr(name string) bool {
+	return strings.HasPrefix(name, "system.posix_acl_")
 }
 
 // IsXattrExcluded returns true if name is listed in ExcludeXattrs. The list is short, so a
@@ -163,12 +199,12 @@ func ReadExtendedAttributes(ctx context.Context, e Entry, opts AttributeOptions)
 }
 
 // Filtered returns the metadata of a selected by opts: xattrs are dropped unless opts selects
-// some, and excluded names are removed. Namespace selection (XattrsUser) is platform-specific
-// and is not applied. Returns nil if nothing remains.
+// them (see IncludesXattr). Namespace selection (XattrsUser) is platform-specific and is not
+// applied. Returns nil if nothing remains.
 //
 // Filtered is for metadata that was already captured, such as metadata stored in a snapshot.
 // When opts drops nothing it returns a itself, and otherwise the result shares xattr values
-// with a, so the result must not be modified.
+// and the ACL with a, so the result must not be modified.
 func (a *ExtendedAttributes) Filtered(opts AttributeOptions) *ExtendedAttributes {
 	if a.IsEmpty() || opts.IsZero() {
 		return nil
@@ -188,18 +224,20 @@ func (a *ExtendedAttributes) Filtered(opts AttributeOptions) *ExtendedAttributes
 		c.BirthTime = a.BirthTime
 	}
 
-	if opts.Xattrs != XattrsNone {
-		for name, v := range a.Xattrs {
-			if opts.IsXattrExcluded(name) {
-				continue
-			}
+	if opts.ACLs {
+		c.ACL = a.ACL
+	}
 
-			if c.Xattrs == nil {
-				c.Xattrs = map[string][]byte{}
-			}
-
-			c.Xattrs[name] = v
+	for name, v := range a.Xattrs {
+		if !opts.IncludesXattr(name) {
+			continue
 		}
+
+		if c.Xattrs == nil {
+			c.Xattrs = map[string][]byte{}
+		}
+
+		c.Xattrs[name] = v
 	}
 
 	if c.IsEmpty() {
@@ -211,20 +249,13 @@ func (a *ExtendedAttributes) Filtered(opts AttributeOptions) *ExtendedAttributes
 
 // selectedBy returns true if opts selects all metadata in a, so that filtering drops nothing.
 func (a *ExtendedAttributes) selectedBy(opts AttributeOptions) bool {
-	if (a.BSDFlags != 0 && !opts.BSDFlags) || (a.BirthTime != 0 && !opts.BirthTime) {
-		return false
-	}
-
-	if len(a.Xattrs) == 0 {
-		return true
-	}
-
-	if opts.Xattrs == XattrsNone {
+	if (a.BSDFlags != 0 && !opts.BSDFlags) || (a.BirthTime != 0 && !opts.BirthTime) ||
+		(len(a.ACL) != 0 && !opts.ACLs) {
 		return false
 	}
 
 	for name := range a.Xattrs {
-		if opts.IsXattrExcluded(name) {
+		if !opts.IncludesXattr(name) {
 			return false
 		}
 	}
