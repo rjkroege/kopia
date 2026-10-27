@@ -18,7 +18,7 @@ func (e *filesystemEntry) ExtendedAttributes(ctx context.Context, opts fs.Attrib
 	path := e.fullPath()
 	a := &fs.ExtendedAttributes{}
 
-	if opts.Xattrs != fs.XattrsNone {
+	if opts.Xattrs != fs.XattrsNone || opts.ACLs {
 		tooLarge, err := readXattrs(path, opts, a)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to read extended attributes")
@@ -28,6 +28,15 @@ func (e *filesystemEntry) ExtendedAttributes(ctx context.Context, opts fs.Attrib
 			log(ctx).Warnw("extended attributes not captured because they exceed the size limit",
 				"path", path, "names", tooLarge, "limit", fs.MaxXattrSize)
 		}
+	}
+
+	if opts.ACLs {
+		acl, err := readACL(path)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to read ACL")
+		}
+
+		a.ACL = acl
 	}
 
 	if opts.BSDFlags || opts.BirthTime {

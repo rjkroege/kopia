@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"context"
 	"io"
+	"os"
 
 	"github.com/pkg/errors"
 
@@ -23,18 +24,19 @@ func (o *TarOutput) Parallelizable() bool {
 }
 
 // BeginDirectory implements restore.Output interface.
-func (o *TarOutput) BeginDirectory(_ context.Context, relativePath string, d fs.Directory) error {
+func (o *TarOutput) BeginDirectory(ctx context.Context, relativePath string, d fs.Directory) error {
 	if relativePath == "" {
 		return nil
 	}
 
 	h := &tar.Header{
-		Name:     relativePath + "/",
-		ModTime:  d.ModTime(),
-		Mode:     int64(d.Mode()),
-		Uid:      int(d.Owner().UserID),
-		Gid:      int(d.Owner().GroupID),
-		Typeflag: tar.TypeDir,
+		Name:       relativePath + "/",
+		ModTime:    d.ModTime(),
+		Mode:       tarMode(d.Mode()),
+		Uid:        int(d.Owner().UserID),
+		Gid:        int(d.Owner().GroupID),
+		Typeflag:   tar.TypeDir,
+		PAXRecords: tarPAXRecords(ctx, d),
 	}
 
 	if err := o.tf.WriteHeader(h); err != nil {
@@ -77,13 +79,14 @@ func (o *TarOutput) WriteFile(ctx context.Context, relativePath string, f fs.Fil
 	defer r.Close() //nolint:errcheck
 
 	h := &tar.Header{
-		Name:     relativePath,
-		ModTime:  f.ModTime(),
-		Size:     f.Size(),
-		Mode:     int64(f.Mode()),
-		Uid:      int(f.Owner().UserID),
-		Gid:      int(f.Owner().GroupID),
-		Typeflag: tar.TypeReg,
+		Name:       relativePath,
+		ModTime:    f.ModTime(),
+		Size:       f.Size(),
+		Mode:       tarMode(f.Mode()),
+		Uid:        int(f.Owner().UserID),
+		Gid:        int(f.Owner().GroupID),
+		Typeflag:   tar.TypeReg,
+		PAXRecords: tarPAXRecords(ctx, f),
 	}
 
 	if err := o.tf.WriteHeader(h); err != nil {
@@ -112,13 +115,14 @@ func (o *TarOutput) CreateSymlink(ctx context.Context, relativePath string, l fs
 	}
 
 	h := &tar.Header{
-		Name:     relativePath,
-		ModTime:  l.ModTime(),
-		Mode:     int64(l.Mode()),
-		Uid:      int(l.Owner().UserID),
-		Gid:      int(l.Owner().GroupID),
-		Typeflag: tar.TypeSymlink,
-		Linkname: target,
+		Name:       relativePath,
+		ModTime:    l.ModTime(),
+		Mode:       tarMode(l.Mode()),
+		Uid:        int(l.Owner().UserID),
+		Gid:        int(l.Owner().GroupID),
+		Typeflag:   tar.TypeSymlink,
+		Linkname:   target,
+		PAXRecords: tarPAXRecords(ctx, l),
 	}
 
 	if err := o.tf.WriteHeader(h); err != nil {
@@ -133,6 +137,33 @@ func (o *TarOutput) CreateSymlink(ctx context.Context, relativePath string, l fs
 //nolint:revive
 func (o *TarOutput) SymlinkExists(ctx context.Context, relativePath string, l fs.Symlink) bool {
 	return false
+}
+
+// tarMode converts m to the tar mode field: permission bits plus the setuid, setgid and sticky
+// bits in their traditional positions. The entry type is carried by Typeflag; Go's own type bits
+// (such as os.ModeDir) cannot be encoded in PAX headers.
+func tarMode(m os.FileMode) int64 {
+	const (
+		tarSetuid = 0o4000
+		tarSetgid = 0o2000
+		tarSticky = 0o1000
+	)
+
+	mode := int64(m.Perm())
+
+	if m&os.ModeSetuid != 0 {
+		mode |= tarSetuid
+	}
+
+	if m&os.ModeSetgid != 0 {
+		mode |= tarSetgid
+	}
+
+	if m&os.ModeSticky != 0 {
+		mode |= tarSticky
+	}
+
+	return mode
 }
 
 // NewTarOutput creates new tar writer output.
