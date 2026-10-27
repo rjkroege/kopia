@@ -232,3 +232,24 @@ func TestSnapshotCreate_XattrOnlyChangeIsCaptured(t *testing.T) {
 	got := listXattrs(t, filepath.Join(dst, "Notes.rtfd", "TXT.rtf"))
 	require.True(t, bytes.Equal([]byte("changed"), got["user.text"]), "got %q", got["user.text"])
 }
+
+func TestList_ShowsExtendedAttributes(t *testing.T) {
+	t.Parallel()
+
+	src := newExtendedMetadataSource(t)
+	e := newExtendedMetadataEnv(t)
+
+	defer e.RunAndExpectSuccess(t, "repo", "disconnect")
+
+	e.RunAndExpectSuccess(t, "policy", "set", "--global", "--xattrs=all")
+	e.RunAndExpectSuccess(t, "snapshot", "create", src)
+
+	root := latestSnapshotID(t, e, src)
+
+	out := strings.Join(e.RunAndExpectSuccess(t, "ls", "-l", "-@", root+"/Notes.rtfd"), "\n")
+	require.Contains(t, out, "\tuser.text\t5")
+	require.Contains(t, out, "\tuser.binary\t4")
+
+	plain := strings.Join(e.RunAndExpectSuccess(t, "ls", "-l", root+"/Notes.rtfd"), "\n")
+	require.NotContains(t, plain, "user.text")
+}

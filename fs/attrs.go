@@ -55,6 +55,15 @@ func (a *ExtendedAttributes) Clone() *ExtendedAttributes {
 	return &c
 }
 
+// XattrNames returns the names of the extended attributes in a, sorted.
+func (a *ExtendedAttributes) XattrNames() []string {
+	if a == nil {
+		return nil
+	}
+
+	return slices.Sorted(maps.Keys(a.Xattrs))
+}
+
 // Equal returns true if a and b carry the same metadata. Nil and empty values are equal.
 func (a *ExtendedAttributes) Equal(b *ExtendedAttributes) bool {
 	if a.IsEmpty() || b.IsEmpty() {
