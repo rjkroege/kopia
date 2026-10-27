@@ -166,7 +166,7 @@ func TestSnapshotRestore_ExtendedAttributesRoundTrip(t *testing.T) {
 	require.Equal(t, os.FileMode(0o444), st.Mode().Perm())
 }
 
-func TestSnapshotRestore_ExtendedAttributesDisabledByDefault(t *testing.T) {
+func TestSnapshotRestore_ExtendedAttributesCapturedByDefault(t *testing.T) {
 	t.Parallel()
 
 	src := newExtendedMetadataSource(t)
@@ -174,6 +174,23 @@ func TestSnapshotRestore_ExtendedAttributesDisabledByDefault(t *testing.T) {
 
 	defer e.RunAndExpectSuccess(t, "repo", "disconnect")
 
+	e.RunAndExpectSuccess(t, "snapshot", "create", src)
+
+	dst := testutil.TempDirectory(t)
+	e.RunAndExpectSuccess(t, "snapshot", "restore", latestSnapshotID(t, e, src), dst)
+
+	require.Equal(t, treeXattrs(t, src), treeXattrs(t, dst))
+}
+
+func TestSnapshotRestore_ExtendedAttributesDisabledByPolicy(t *testing.T) {
+	t.Parallel()
+
+	src := newExtendedMetadataSource(t)
+	e := newExtendedMetadataEnv(t)
+
+	defer e.RunAndExpectSuccess(t, "repo", "disconnect")
+
+	e.RunAndExpectSuccess(t, "policy", "set", "--global", "--xattrs=none", "--acls=false")
 	e.RunAndExpectSuccess(t, "snapshot", "create", src)
 
 	dst := testutil.TempDirectory(t)
