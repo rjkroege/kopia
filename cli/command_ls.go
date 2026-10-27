@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -61,9 +61,9 @@ func (c *commandList) run(ctx context.Context, rep repo.Repository) error {
 	}
 
 	if c.emitJSON {
-		c.enc = json.NewEncoder(os.Stdout)
+		c.enc = json.NewEncoder(c.out.stdout())
 
-		if _, err := os.Stdout.WriteString("[\n"); err != nil {
+		if _, err := io.WriteString(c.out.stdout(), "[\n"); err != nil {
 			return errors.Wrap(err, "unable to write JSON output")
 		}
 	}
@@ -73,7 +73,7 @@ func (c *commandList) run(ctx context.Context, rep repo.Repository) error {
 	}
 
 	if c.emitJSON {
-		if _, err := os.Stdout.WriteString("]\n"); err != nil {
+		if _, err := io.WriteString(c.out.stdout(), "]\n"); err != nil {
 			return errors.Wrap(err, "unable to write JSON output")
 		}
 	}
@@ -122,25 +122,62 @@ func (c *commandList) listDirectory(ctx context.Context, d fs.Directory, prefix,
 
 // jsonWithLong is the --emit-json entry format with --long.
 type jsonWithLong struct {
-	Mode         string
-	Size         int64
-	Time         string
-	Oid          string
-	DisplayName  string
-	ErrorSummary string
+	Mode               string
+	Size               int64
+	Time               string
+	Oid                string
+	DisplayName        string
+	ErrorSummary       string
+	ExtendedAttributes *jsonExtendedAttributes `json:",omitempty"`
 }
 
 // jsonWithOID is the --emit-json entry format with --show-object-id.
 type jsonWithOID struct {
-	Oid          string
-	DisplayName  string
-	ErrorSummary string
+	Oid                string
+	DisplayName        string
+	ErrorSummary       string
+	ExtendedAttributes *jsonExtendedAttributes `json:",omitempty"`
 }
 
 // jsonDefault is the default --emit-json entry format.
 type jsonDefault struct {
-	DisplayName  string
-	ErrorSummary string
+	DisplayName        string
+	ErrorSummary       string
+	ExtendedAttributes *jsonExtendedAttributes `json:",omitempty"`
+}
+
+// jsonExtendedAttributes is the --emit-json form of --extended-attributes: the same items
+// as the text output, with attribute value sizes rather than values.
+type jsonExtendedAttributes struct {
+	Xattrs    map[string]int `json:",omitempty"` // name -> value size in bytes
+	Flags     uint32         `json:",omitempty"`
+	BirthTime string         `json:",omitempty"`
+	ACLSize   int            `json:",omitempty"`
+}
+
+// newJSONExtendedAttributes returns the --emit-json form of a, or nil if a is empty.
+func newJSONExtendedAttributes(a *fs.ExtendedAttributes) *jsonExtendedAttributes {
+	if a.IsEmpty() {
+		return nil
+	}
+
+	j := &jsonExtendedAttributes{
+		Flags:   a.BSDFlags,
+		ACLSize: len(a.ACL),
+	}
+
+	if len(a.Xattrs) > 0 {
+		j.Xattrs = make(map[string]int, len(a.Xattrs))
+		for name, value := range a.Xattrs {
+			j.Xattrs[name] = len(value)
+		}
+	}
+
+	if a.BirthTime != 0 {
+		j.BirthTime = formatTimestamp(a.BirthTime.ToTime().Local())
+	}
+
+	return j
 }
 
 func (c *commandList) printDirectoryJSONEntry(ctx context.Context, e fs.Entry, prefix, indent string) error {
@@ -161,35 +198,43 @@ func (c *commandList) printDirectoryJSONEntry(ctx context.Context, e fs.Entry, p
 	}
 
 	if c.notfirst {
-		if _, err := os.Stdout.WriteString(",\n"); err != nil {
+		if _, err := io.WriteString(c.out.stdout(), ",\n"); err != nil {
 			return errors.Wrap(err, "unable to write JSON output")
 		}
 	}
 
 	c.notfirst = true
 
+	var attrs *jsonExtendedAttributes
+	if c.showAttrs {
+		attrs = newJSONExtendedAttributes(c.readExtendedAttributes(ctx, e))
+	}
+
 	var obj any
 
 	switch {
 	case c.long:
 		obj = &jsonWithLong{
-			Mode:         e.Mode().String(),
-			Size:         e.Size(),
-			Time:         formatTimestamp(e.ModTime().Local()),
-			Oid:          oid,
-			DisplayName:  c.nameToDisplay(prefix, e),
-			ErrorSummary: errorSummary,
+			Mode:               e.Mode().String(),
+			Size:               e.Size(),
+			Time:               formatTimestamp(e.ModTime().Local()),
+			Oid:                oid,
+			DisplayName:        c.nameToDisplay(prefix, e),
+			ErrorSummary:       errorSummary,
+			ExtendedAttributes: attrs,
 		}
 	case c.showOID:
 		obj = &jsonWithOID{
-			Oid:          oid,
-			DisplayName:  c.nameToDisplay(prefix, e),
-			ErrorSummary: errorSummary,
+			Oid:                oid,
+			DisplayName:        c.nameToDisplay(prefix, e),
+			ErrorSummary:       errorSummary,
+			ExtendedAttributes: attrs,
 		}
 	default:
 		obj = &jsonDefault{
-			DisplayName:  c.nameToDisplay(prefix, e),
-			ErrorSummary: errorSummary,
+			DisplayName:        c.nameToDisplay(prefix, e),
+			ErrorSummary:       errorSummary,
+			ExtendedAttributes: attrs,
 		}
 	}
 
@@ -278,8 +323,9 @@ func (c *commandList) nameToDisplay(prefix string, e fs.Entry) string {
 	return e.Name()
 }
 
-// printExtendedAttributes prints the extended metadata of e, one item per line, like ls -l@.
-func (c *commandList) printExtendedAttributes(ctx context.Context, e fs.Entry, indent string) {
+// readExtendedAttributes returns all extended metadata of e, or nil if it has none or it
+// cannot be read. Read errors are reported on stderr.
+func (c *commandList) readExtendedAttributes(ctx context.Context, e fs.Entry) *fs.ExtendedAttributes {
 	a, err := fs.ReadExtendedAttributes(ctx, e, fs.AttributeOptions{
 		Xattrs:    fs.XattrsAll,
 		BSDFlags:  true,
@@ -288,9 +334,15 @@ func (c *commandList) printExtendedAttributes(ctx context.Context, e fs.Entry, i
 	})
 	if err != nil {
 		errorColor.Fprintf(c.out.stderr(), "unable to read extended attributes of %v: %v\n", e.Name(), err) //nolint:errcheck
-		return
+		return nil
 	}
 
+	return a
+}
+
+// printExtendedAttributes prints the extended metadata of e, one item per line, like ls -l@.
+func (c *commandList) printExtendedAttributes(ctx context.Context, e fs.Entry, indent string) {
+	a := c.readExtendedAttributes(ctx, e)
 	if a == nil {
 		return
 	}
