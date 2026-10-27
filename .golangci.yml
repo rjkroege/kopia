@@ -154,6 +154,11 @@ linters:
       - text: "filepathJoin"
         linters:
           - gocritic
+      # chromedp.Do takes a list of steps, and the browser tests repeat steps on purpose.
+      - path: tests/htmlui_e2e_test
+        text: "dupOption"
+        linters:
+          - gocritic
       - text: "weak cryptographic primitive"
         linters:
           - gosec
