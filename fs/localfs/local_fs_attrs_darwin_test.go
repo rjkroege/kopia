@@ -2,6 +2,7 @@ package localfs
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -42,4 +43,24 @@ func TestExtendedAttributes_FinderInfo(t *testing.T) {
 	a := readAttrs(t, dir, fs.AttributeOptions{Xattrs: fs.XattrsAll})
 	require.NotNil(t, a)
 	require.Equal(t, finderInfo, a.Xattrs["com.apple.FinderInfo"])
+}
+
+func TestExtendedAttributes_ACL(t *testing.T) {
+	dir := t.TempDir()
+	withACL := filepath.Join(dir, "acl")
+	withoutACL := filepath.Join(dir, "plain")
+
+	require.NoError(t, os.WriteFile(withACL, []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(withoutACL, []byte("x"), 0o600))
+
+	out, err := exec.CommandContext(t.Context(), "chmod", "+a", "everyone allow readattr", withACL).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	a := readAttrs(t, withACL, fs.AttributeOptions{ACLs: true})
+	require.NotNil(t, a)
+	require.NotEmpty(t, a.ACL)
+	require.Empty(t, a.Xattrs)
+
+	require.Nil(t, readAttrs(t, withoutACL, fs.AttributeOptions{ACLs: true}))
+	require.Nil(t, readAttrs(t, withACL, fs.AttributeOptions{BirthTime: false}))
 }
