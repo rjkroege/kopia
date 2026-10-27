@@ -2,6 +2,7 @@
 package diff
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -39,6 +41,8 @@ type EntryTypeStats struct {
 	SameContentButDifferentModificationTime uint32 `json:"sameContentButDifferentModificationTime"`
 	SameContentButDifferentUserOwner        uint32 `json:"sameContentButDifferentUserOwner"`
 	SameContentButDifferentGroupOwner       uint32 `json:"sameContentButDifferentGroupOwner"`
+
+	SameContentButDifferentExtendedAttributes uint32 `json:"sameContentButDifferentExtendedAttributes"`
 }
 
 // Stats accumulates stats between snapshots being compared.
@@ -171,7 +175,7 @@ func (c *Comparer) compareEntry(ctx context.Context, e1, e2 fs.Entry, path strin
 		return nil
 	}
 
-	c.compareEntryMetadata(e1, e2, path)
+	c.compareEntryMetadata(ctx, e1, e2, path)
 
 	dir1, isDir1 := e1.(fs.Directory)
 	dir2, isDir2 := e2.(fs.Directory)
@@ -237,6 +241,11 @@ func compareMetadata(ctx context.Context, e1, e2 fs.Entry, path string, st *Entr
 		st.SameContentButDifferentGroupOwner++
 	}
 
+	if !extendedAttributes(ctx, e1).Equal(extendedAttributes(ctx, e2)) {
+		changed = true
+		st.SameContentButDifferentExtendedAttributes++
+	}
+
 	if changed {
 		st.SameContentButDifferentMetadata++
 
@@ -244,7 +253,7 @@ func compareMetadata(ctx context.Context, e1, e2 fs.Entry, path string, st *Entr
 	}
 }
 
-func (c *Comparer) compareEntryMetadata(e1, e2 fs.Entry, fullpath string) {
+func (c *Comparer) compareEntryMetadata(ctx context.Context, e1, e2 fs.Entry, fullpath string) {
 	switch {
 	case e1 == e2: // in particular e1 == nil && e2 == nil
 		return
@@ -287,6 +296,12 @@ func (c *Comparer) compareEntryMetadata(e1, e2 fs.Entry, fullpath string) {
 		changed = true
 
 		c.output(c.statsOnly, "%v owner groups differ: %v %v\n", fullpath, o1.GroupID, o2.GroupID)
+	}
+
+	if d := describeExtendedAttributeChanges(extendedAttributes(ctx, e1), extendedAttributes(ctx, e2)); d != "" {
+		changed = true
+
+		c.output(c.statsOnly, "%v extended attributes differ: %v\n", fullpath, d)
 	}
 
 	_, isDir1 := e1.(fs.Directory)
@@ -464,4 +479,79 @@ func GetTwoLatestSnapshotsForASource(ctx context.Context, rep repo.Repository, s
 	})
 
 	return snapshots[sizeSnapshots-2], snapshots[sizeSnapshots-1], nil
+}
+
+// allExtendedAttributes selects all extended metadata an entry carries.
+var allExtendedAttributes = fs.AttributeOptions{ //nolint:gochecknoglobals
+	Xattrs:    fs.XattrsAll,
+	BSDFlags:  true,
+	BirthTime: true,
+	ACLs:      true,
+}
+
+func extendedAttributes(ctx context.Context, e fs.Entry) *fs.ExtendedAttributes {
+	a, err := fs.ReadExtendedAttributes(ctx, e, allExtendedAttributes)
+	if err != nil {
+		log(ctx).Debugw("unable to read extended attributes", "name", e.Name(), "error", err)
+	}
+
+	return a
+}
+
+// describeExtendedAttributeChanges returns a short description of how a2 differs from a1,
+// or an empty string if they are equal.
+func describeExtendedAttributeChanges(a1, a2 *fs.ExtendedAttributes) string {
+	if a1.Equal(a2) {
+		return ""
+	}
+
+	if a1 == nil {
+		a1 = &fs.ExtendedAttributes{}
+	}
+
+	if a2 == nil {
+		a2 = &fs.ExtendedAttributes{}
+	}
+
+	var sb strings.Builder
+
+	// part starts the next item of the description, separating it from the previous one.
+	part := func() *strings.Builder {
+		if sb.Len() > 0 {
+			sb.WriteString(", ")
+		}
+
+		return &sb
+	}
+
+	for _, name := range a1.XattrNames() {
+		v2, ok := a2.Xattrs[name]
+
+		switch {
+		case !ok:
+			part().WriteString("-" + name)
+		case !bytes.Equal(a1.Xattrs[name], v2):
+			part().WriteString("~" + name)
+		}
+	}
+
+	for _, name := range a2.XattrNames() {
+		if _, ok := a1.Xattrs[name]; !ok {
+			part().WriteString("+" + name)
+		}
+	}
+
+	if a1.BSDFlags != a2.BSDFlags {
+		fmt.Fprintf(part(), "flags %#x -> %#x", a1.BSDFlags, a2.BSDFlags)
+	}
+
+	if a1.BirthTime != a2.BirthTime {
+		fmt.Fprintf(part(), "birth time %v -> %v", a1.BirthTime.ToTime().UTC(), a2.BirthTime.ToTime().UTC())
+	}
+
+	if !bytes.Equal(a1.ACL, a2.ACL) {
+		part().WriteString("ACL")
+	}
+
+	return sb.String()
 }

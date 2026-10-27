@@ -20,6 +20,7 @@ type commandList struct {
 	humanReadable bool
 	recursive     bool
 	showOID       bool
+	showAttrs     bool
 	errorSummary  bool
 	emitJSON      bool
 	path          string
@@ -36,6 +37,7 @@ func (c *commandList) setup(svc appServices, parent commandParent) {
 	cmd.Flag("human-readable", "Show human-readable sizes").Short('h').BoolVar(&c.humanReadable)
 	cmd.Flag("recursive", "Recursive output").Short('r').BoolVar(&c.recursive)
 	cmd.Flag("show-object-id", "Show object IDs").Short('o').BoolVar(&c.showOID)
+	cmd.Flag("extended-attributes", "Show extended attributes, file flags, birth time and ACLs").Short('@').BoolVar(&c.showAttrs)
 	cmd.Flag("error-summary", "Emit error summary").Default(trueStr).BoolVar(&c.errorSummary)
 	cmd.Flag("emit-json", "Dump JSON format").Short('j').Default("false").BoolVar(&c.emitJSON)
 	cmd.Arg("object-path", "Path").Required().StringVar(&c.path)
@@ -248,6 +250,10 @@ func (c *commandList) printDirectoryEntry(ctx context.Context, e fs.Entry, prefi
 
 	col.Fprintln(c.out.stdout(), info) //nolint:errcheck
 
+	if c.showAttrs {
+		c.printExtendedAttributes(ctx, e, indent)
+	}
+
 	if c.recursive {
 		if subdir, ok := e.(fs.Directory); ok {
 			if listerr := c.listDirectory(ctx, subdir, prefix+e.Name()+"/", indent+"  "); listerr != nil {
@@ -270,4 +276,40 @@ func (c *commandList) nameToDisplay(prefix string, e fs.Entry) string {
 	}
 
 	return e.Name()
+}
+
+// printExtendedAttributes prints the extended metadata of e, one item per line, like ls -l@.
+func (c *commandList) printExtendedAttributes(ctx context.Context, e fs.Entry, indent string) {
+	a, err := fs.ReadExtendedAttributes(ctx, e, fs.AttributeOptions{
+		Xattrs:    fs.XattrsAll,
+		BSDFlags:  true,
+		BirthTime: true,
+		ACLs:      true,
+	})
+	if err != nil {
+		errorColor.Fprintf(c.out.stderr(), "unable to read extended attributes of %v: %v\n", e.Name(), err) //nolint:errcheck
+		return
+	}
+
+	if a == nil {
+		return
+	}
+
+	prefix := indent + "\t"
+
+	for _, name := range a.XattrNames() {
+		c.out.printStdout("%v%v\t%v\n", prefix, name, len(a.Xattrs[name]))
+	}
+
+	if a.BSDFlags != 0 {
+		c.out.printStdout("%vflags: %#x\n", prefix, a.BSDFlags)
+	}
+
+	if a.BirthTime != 0 {
+		c.out.printStdout("%vbirth time: %v\n", prefix, formatTimestamp(a.BirthTime.ToTime().Local()))
+	}
+
+	if len(a.ACL) > 0 {
+		c.out.printStdout("%vACL: %v bytes\n", prefix, len(a.ACL))
+	}
 }

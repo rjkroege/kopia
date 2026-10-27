@@ -222,3 +222,10 @@ func TestExtendedAttributes_ACLInCloneAndEqual(t *testing.T) {
 	require.False(t, a.Equal(c))
 	require.Equal(t, []byte("x"), a.ACL)
 }
+
+func TestExtendedAttributes_XattrNames(t *testing.T) {
+	var nilAttrs *fs.ExtendedAttributes
+
+	require.Nil(t, nilAttrs.XattrNames())
+	require.Equal(t, []string{"com.apple.FinderInfo", "com.apple.quarantine", "user.small"}, sampleAttrs().XattrNames())
+}

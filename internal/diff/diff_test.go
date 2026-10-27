@@ -36,6 +36,11 @@ type testBaseEntry struct {
 	name    string
 	owner   fs.OwnerInfo
 	oid     object.ID
+	attrs   *fs.ExtendedAttributes
+}
+
+func (f *testBaseEntry) ExtendedAttributes(_ context.Context, opts fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
+	return f.attrs.Filtered(opts), nil
 }
 
 func (f *testBaseEntry) IsDir() bool                 { return false }
@@ -47,10 +52,6 @@ func (f *testBaseEntry) Sys() any                    { return nil }
 func (f *testBaseEntry) Owner() fs.OwnerInfo         { return f.owner }
 func (f *testBaseEntry) Device() fs.DeviceInfo       { return fs.DeviceInfo{Dev: 1} }
 func (f *testBaseEntry) ObjectID() object.ID         { return f.oid }
-
-func (f *testBaseEntry) ExtendedAttributes(context.Context, fs.AttributeOptions) (*fs.ExtendedAttributes, error) {
-	return nil, nil
-}
 
 func (f *testBaseEntry) Mode() os.FileMode {
 	if f.mode == 0 {
@@ -616,4 +617,64 @@ func oidForContent(t *testing.T, prefix content.IDPrefix, c []byte) object.ID {
 	require.NoError(t, err)
 
 	return object.DirectObjectID(cid)
+}
+
+func TestCompareFileWithIdenticalContentsButDiffExtendedAttributes(t *testing.T) {
+	var buf bytes.Buffer
+
+	ctx := context.Background()
+	modTime := time.Date(2023, time.April, 12, 10, 30, 0, 0, time.UTC)
+	owner := fs.OwnerInfo{UserID: 1000, GroupID: 1000}
+
+	file := func(attrs *fs.ExtendedAttributes) *testFile {
+		return &testFile{name: "file1.txt", modtime: modTime, owner: owner, attrs: attrs, content: "abcdefghij"}
+	}
+
+	dir1 := createTestDirectory("testDir1", modTime, owner, 0o777, oidForString(t, "k", "sdkjfn"),
+		file(&fs.ExtendedAttributes{Xattrs: map[string][]byte{"user.a": []byte("1"), "user.b": []byte("2")}, BSDFlags: 0x8000}))
+	dir2 := createTestDirectory("testDir2", modTime, owner, 0o777, oidForString(t, "k", "dfjlgn"),
+		file(&fs.ExtendedAttributes{Xattrs: map[string][]byte{"user.a": []byte("x"), "user.c": []byte("3")}}))
+
+	c, err := diff.NewComparer(&buf, statsOnly)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = c.Close()
+	})
+
+	actualStats, err := c.Compare(ctx, dir1, dir2)
+	require.NoError(t, err)
+
+	require.Equal(t, diff.Stats{
+		FileEntries: diff.EntryTypeStats{
+			SameContentButDifferentMetadata:           1,
+			SameContentButDifferentExtendedAttributes: 1,
+		},
+	}, actualStats)
+	require.Empty(t, buf.String())
+}
+
+func TestCompareDirectoriesWithDiffExtendedAttributes(t *testing.T) {
+	var buf bytes.Buffer
+
+	ctx := context.Background()
+	modTime := time.Date(2023, time.April, 12, 10, 30, 0, 0, time.UTC)
+	owner := fs.OwnerInfo{UserID: 1000, GroupID: 1000}
+
+	dir1 := createTestDirectory("testDir1", modTime, owner, 0o777, oidForString(t, "k", "sdkjfn"))
+	dir2 := createTestDirectory("testDir2", modTime, owner, 0o777, oidForString(t, "k", "dfjlgn"))
+	dir1.attrs = &fs.ExtendedAttributes{Xattrs: map[string][]byte{"user.a": []byte("1"), "user.b": []byte("2")}, BSDFlags: 0x8000}
+	dir2.attrs = &fs.ExtendedAttributes{Xattrs: map[string][]byte{"user.a": []byte("x"), "user.c": []byte("3")}}
+
+	c, err := diff.NewComparer(&buf, statsOnly)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = c.Close()
+	})
+
+	_, err = c.Compare(ctx, dir1, dir2)
+	require.NoError(t, err)
+
+	require.Contains(t, buf.String(), ". extended attributes differ: ~user.a, -user.b, +user.c, flags 0x8000 -> 0x0\n")
 }
