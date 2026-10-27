@@ -20,11 +20,12 @@ func TestSetExtendedMetadataPolicy(t *testing.T) {
 	require.Contains(t, lines, " com.apple.provenance")
 	require.Contains(t, lines, " File flags: false (defined for this target)")
 	require.Contains(t, lines, " Birth time: false (defined for this target)")
+	require.Contains(t, lines, " ACLs: false (defined for this target)")
 
 	td := testutil.TempDirectory(t)
 
 	e.RunAndExpectSuccess(t, "policy", "set", td, "--xattrs=all", "--file-flags=true", "--birth-time=true",
-		"--add-xattr-exclude=user.skip")
+		"--acls=true", "--add-xattr-exclude=user.skip")
 
 	lines = compressSpaces(e.RunAndExpectSuccess(t, "policy", "show", td))
 	require.Contains(t, lines, " Extended attributes: all (defined for this target)")
@@ -32,6 +33,7 @@ func TestSetExtendedMetadataPolicy(t *testing.T) {
 	require.NotContains(t, lines, " com.apple.provenance", "a non-empty exclude list replaces the inherited one")
 	require.Contains(t, lines, " File flags: true (defined for this target)")
 	require.Contains(t, lines, " Birth time: true (defined for this target)")
+	require.Contains(t, lines, " ACLs: true (defined for this target)")
 
 	e.RunAndExpectSuccess(t, "policy", "set", td, "--xattrs=inherit", "--clear-xattr-exclude", "--file-flags=inherit")
 
