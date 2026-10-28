@@ -30,3 +30,6 @@ coverage.txt
 .screenshots/
 .idea/
 /.vs
+.claude
+.mcp.json
+guide
