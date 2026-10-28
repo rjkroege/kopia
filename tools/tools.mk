@@ -175,6 +175,7 @@ checklocks_dir=$(TOOLS_DIR)$(slash)checklocks-$(CHECKLOCKS_VERSION)
 checklocks=$(checklocks_dir)$(slash)bin$(slash)checklocks$(exe_suffix)
 
 $(checklocks): export GOPATH=$(checklocks_dir)
+$(checklocks): export GOBIN=$(checklocks_dir)$(slash)bin
 $(checklocks):
 	go install gvisor.dev/gvisor/tools/checklocks/cmd/checklocks@$(CHECKLOCKS_VERSION)
 	go clean -modcache
