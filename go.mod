@@ -156,3 +156,5 @@ require (
 	storj.io/infectious v1.0.1 // indirect
 	storj.io/picobuf v0.0.4 // indirect
 )
+
+replace github.com/hanwen/go-fuse/v2 => github.com/rjkroege/go-fuse/v2 v2.12.1-0.20261029210749-c5cbd01863c9
