@@ -32,6 +32,10 @@ linters:
       statements: 60
     gocognit:
       min-complexity: 40
+    gomoddirectives:
+      replace-allow-list:
+        # 32-bit build fix pending in upstream go-fuse; see go.mod.
+        - github.com/hanwen/go-fuse/v2
     gomodguard_v2:
       blocked:
         - module: "github.com/aws/aws-sdk-go"
