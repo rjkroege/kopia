@@ -1,0 +1,44 @@
+name: Linux ARM
+on:
+  pull_request:
+    branches: [ master, main ]
+  push:
+    branches: [ master, main ]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  # 32-bit ARM. GitHub's ARM runners are arm64-only and cannot execute
+  # AArch32 binaries, so cross-compile on amd64 and run tests under qemu-user.
+  GOOS: linux
+  GOARCH: arm
+  GOARM: 7
+jobs:
+  tests:
+    name: Tests (linux/arm)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: 'go.mod'
+    - name: Install qemu-user
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-user-binfmt
+    - name: Build
+      run: |
+        go build ./...
+        go build -o kopia-arm . && ./kopia-arm --version
+    - name: Vet
+      run: go vet ./...
+    - name: Unit Tests
+      run: |
+        export TESTING_ACTION_EXE=$PWD/dist/testing_linux_arm/testingaction.exe
+        go build -o "$TESTING_ACTION_EXE" -tags testing ./tests/testingaction
+        go test -tags testing -short -timeout 90m $(go list ./... | grep -v /tests/)
